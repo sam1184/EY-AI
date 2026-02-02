@@ -1,0 +1,688 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Lab 3: SecureBank Production VPC with Banking Security Requirements'
+
+Parameters:
+  BankName:
+    Type: String
+    Description: 'Bank name for resource naming'
+    Default: 'SecureBank'
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9]*$'
+  
+  Environment:
+    Type: String
+    Description: 'Environment name'
+    Default: 'dev'
+    AllowedValues: ['dev', 'staging', 'prod']
+  
+  VPCCidr:
+    Type: String
+    Description: 'CIDR block for VPC'
+    Default: '10.0.0.0/16'
+    AllowedPattern: '^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$'
+  
+  EnableVPCFlowLogs:
+    Type: String
+    Description: 'Enable VPC Flow Logs for compliance'
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+  
+  ComplianceLevel:
+    Type: String
+    Description: 'Banking compliance level'
+    Default: 'Standard'
+    AllowedValues: ['Standard', 'Enhanced', 'Critical']
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, 'prod']
+  EnableFlowLogs: !Equals [!Ref EnableVPCFlowLogs, 'true']
+  IsEnhancedCompliance: !Or [!Equals [!Ref ComplianceLevel, 'Enhanced'], !Equals [!Ref ComplianceLevel, 'Critical']]
+
+Resources:
+  # ============================================================================
+  # VPC AND CORE NETWORKING
+  # ============================================================================
+  
+  SecureBankVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-VPC'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: 'Banking Infrastructure'
+        - Key: DataClassification
+          Value: 'Confidential'
+        - Key: ComplianceLevel
+          Value: !Ref ComplianceLevel
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-IGW'
+        - Key: Environment
+          Value: !Ref Environment
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # ============================================================================
+  # PUBLIC SUBNETS (DMZ TIER)
+  # ============================================================================
+  
+  PublicSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      CidrBlock: !Select [0, !Cidr [!Ref VPCCidr, 8, 8]]  # 10.0.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-Public-AZ1'
+        - Key: Tier
+          Value: 'DMZ'
+        - Key: Environment
+          Value: !Ref Environment
+
+  PublicSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      CidrBlock: !Select [1, !Cidr [!Ref VPCCidr, 8, 8]]  # 10.0.1.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-Public-AZ2'
+        - Key: Tier
+          Value: 'DMZ'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================================================
+  # PRIVATE SUBNETS (APPLICATION TIER)
+  # ============================================================================
+  
+  PrivateSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      CidrBlock: !Select [2, !Cidr [!Ref VPCCidr, 8, 8]]  # 10.0.2.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-Private-AZ1'
+        - Key: Tier
+          Value: 'Application'
+        - Key: Environment
+          Value: !Ref Environment
+
+  PrivateSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      CidrBlock: !Select [3, !Cidr [!Ref VPCCidr, 8, 8]]  # 10.0.3.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-Private-AZ2'
+        - Key: Tier
+          Value: 'Application'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================================================
+  # DATABASE SUBNETS (DATA TIER)
+  # ============================================================================
+  
+  DatabaseSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      CidrBlock: !Select [4, !Cidr [!Ref VPCCidr, 8, 8]]  # 10.0.4.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-Database-AZ1'
+        - Key: Tier
+          Value: 'Database'
+        - Key: Environment
+          Value: !Ref Environment
+
+  DatabaseSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      CidrBlock: !Select [5, !Cidr [!Ref VPCCidr, 8, 8]]  # 10.0.5.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-Database-AZ2'
+        - Key: Tier
+          Value: 'Database'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Database Subnet Group
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: !Sub '${BankName}-${Environment}-db-subnet-group'
+      DBSubnetGroupDescription: 'Subnet group for RDS databases'
+      SubnetIds:
+        - !Ref DatabaseSubnetAZ1
+        - !Ref DatabaseSubnetAZ2
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-DBSubnetGroup'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================================================
+  # NAT GATEWAYS FOR OUTBOUND INTERNET ACCESS
+  # ============================================================================
+  
+  NATGateway1EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-NAT-EIP-AZ1'
+
+  NATGateway2EIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-NAT-EIP-AZ2'
+
+  NATGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATGateway1EIP.AllocationId
+      SubnetId: !Ref PublicSubnetAZ1
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-NAT-AZ1'
+
+  NATGateway2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATGateway2EIP.AllocationId
+      SubnetId: !Ref PublicSubnetAZ2
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-NAT-AZ2'
+
+  # ============================================================================
+  # ROUTE TABLES
+  # ============================================================================
+  
+  # Public Route Table
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-Public-RT'
+        - Key: Environment
+          Value: !Ref Environment
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetAZ1
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetAZ2
+
+  # Private Route Tables (separate for each AZ)
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-Private-RT-AZ1'
+        - Key: Environment
+          Value: !Ref Environment
+
+  DefaultPrivateRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway1
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      SubnetId: !Ref PrivateSubnetAZ1
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-Private-RT-AZ2'
+        - Key: Environment
+          Value: !Ref Environment
+
+  DefaultPrivateRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway2
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      SubnetId: !Ref PrivateSubnetAZ2
+
+  # Database Route Table (no internet access)
+  DatabaseRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-Database-RT'
+        - Key: Environment
+          Value: !Ref Environment
+
+  DatabaseSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref DatabaseRouteTable
+      SubnetId: !Ref DatabaseSubnetAZ1
+
+  DatabaseSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref DatabaseRouteTable
+      SubnetId: !Ref DatabaseSubnetAZ2
+
+  # ============================================================================
+  # SECURITY GROUPS
+  # ============================================================================
+  
+  # Web Tier Security Group (ALB)
+  WebTierSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${BankName}-${Environment}-WebTier-SG'
+      GroupDescription: 'Security group for web tier (load balancers)'
+      VpcId: !Ref SecureBankVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: 'HTTPS from internet'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: 'HTTP redirect to HTTPS'
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-WebTier-SG'
+        - Key: Tier
+          Value: 'Web'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Application Tier Security Group
+  ApplicationTierSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${BankName}-${Environment}-AppTier-SG'
+      GroupDescription: 'Security group for application tier'
+      VpcId: !Ref SecureBankVPC
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: 'HTTPS to internet (AWS APIs)'
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-AppTier-SG'
+        - Key: Tier
+          Value: 'Application'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Database Tier Security Group
+  DatabaseTierSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${BankName}-${Environment}-DBTier-SG'
+      GroupDescription: 'Security group for database tier'
+      VpcId: !Ref SecureBankVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-DBTier-SG'
+        - Key: Tier
+          Value: 'Database'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # VPC Endpoint Security Group
+  VPCEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${BankName}-${Environment}-VPCEndpoint-SG'
+      GroupDescription: 'Security group for VPC endpoints'
+      VpcId: !Ref SecureBankVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-VPCEndpoint-SG'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Management Security Group (Bastion/Admin access)
+  ManagementSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${BankName}-${Environment}-Management-SG'
+      GroupDescription: 'Security group for management access'
+      VpcId: !Ref SecureBankVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 203.0.113.0/24  # Bank's office IP range
+          Description: 'SSH from bank office'
+        - IpProtocol: tcp
+          FromPort: 3389
+          ToPort: 3389
+          CidrIp: 203.0.113.0/24  # Bank's office IP range
+          Description: 'RDP from bank office'
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-Management-SG'
+        - Key: Purpose
+          Value: 'Administrative Access'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================================================
+  # SECURITY GROUP RULES (Added separately to avoid circular dependencies)
+  # ============================================================================
+
+  # Web Tier to Application Tier
+  WebToAppEgressRule:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref WebTierSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      DestinationSecurityGroupId: !Ref ApplicationTierSecurityGroup
+      Description: 'HTTPS to application tier'
+
+  WebToAppEgressRule8080:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref WebTierSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8080
+      ToPort: 8080
+      DestinationSecurityGroupId: !Ref ApplicationTierSecurityGroup
+      Description: 'Application port to application tier'
+
+  # Application Tier from Web Tier
+  AppFromWebIngressRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ApplicationTierSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !Ref WebTierSecurityGroup
+      Description: 'HTTPS from web tier'
+
+  AppFromWebIngressRule8080:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ApplicationTierSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8080
+      ToPort: 8080
+      SourceSecurityGroupId: !Ref WebTierSecurityGroup
+      Description: 'Application port from web tier'
+
+  # Application Tier to Database Tier
+  AppToDBEgressRulePostgres:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref ApplicationTierSecurityGroup
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      DestinationSecurityGroupId: !Ref DatabaseTierSecurityGroup
+      Description: 'PostgreSQL to database tier'
+
+  AppToDBEgressRuleMySQL:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref ApplicationTierSecurityGroup
+      IpProtocol: tcp
+      FromPort: 3306
+      ToPort: 3306
+      DestinationSecurityGroupId: !Ref DatabaseTierSecurityGroup
+      Description: 'MySQL to database tier'
+
+  # Database Tier from Application Tier
+  DBFromAppIngressRulePostgres:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DatabaseTierSecurityGroup
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !Ref ApplicationTierSecurityGroup
+      Description: 'PostgreSQL from application tier'
+
+  DBFromAppIngressRuleMySQL:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DatabaseTierSecurityGroup
+      IpProtocol: tcp
+      FromPort: 3306
+      ToPort: 3306
+      SourceSecurityGroupId: !Ref ApplicationTierSecurityGroup
+      Description: 'MySQL from application tier'
+
+  # VPC Endpoint from Application Tier
+  VPCEndpointFromAppIngressRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref VPCEndpointSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !Ref ApplicationTierSecurityGroup
+      Description: 'HTTPS from application tier'
+
+  # ============================================================================
+  # VPC ENDPOINTS FOR PRIVATE AWS API ACCESS
+  # ============================================================================
+  
+  # S3 Gateway Endpoint
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PrivateRouteTable1
+        - !Ref PrivateRouteTable2
+        - !Ref DatabaseRouteTable
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action:
+              - 's3:GetObject'
+              - 's3:PutObject'
+              - 's3:ListBucket'
+            Resource: 
+              - !Sub 'arn:aws:s3:::${BankName}-${Environment}-*'
+              - !Sub 'arn:aws:s3:::${BankName}-${Environment}-*/*'
+
+  # ============================================================================
+  # VPC FLOW LOGS FOR COMPLIANCE
+  # ============================================================================
+  
+  VPCFlowLogsRole:
+    Type: AWS::IAM::Role
+    Condition: EnableFlowLogs
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: vpc-flow-logs.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: 'CloudWatchLogsPolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                  - 'logs:DescribeLogGroups'
+                  - 'logs:DescribeLogStreams'
+                Resource: '*'
+
+  VPCFlowLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: EnableFlowLogs
+    Properties:
+      LogGroupName: !Sub '/aws/vpc/flowlogs/${BankName}-${Environment}'
+      RetentionInDays: !If [IsProduction, 365, 30]
+
+  VPCFlowLogs:
+    Type: AWS::EC2::FlowLog
+    Condition: EnableFlowLogs
+    Properties:
+      ResourceType: 'VPC'
+      ResourceId: !Ref SecureBankVPC
+      TrafficType: 'ALL'
+      LogDestinationType: 'cloud-watch-logs'
+      LogDestination: !GetAtt VPCFlowLogsGroup.Arn
+      DeliverLogsPermissionArn: !GetAtt VPCFlowLogsRole.Arn
+      LogFormat: '${version} ${account-id} ${interface-id} ${srcaddr} ${dstaddr} ${srcport} ${dstport} ${protocol} ${packets} ${bytes} ${start} ${end} ${action} ${log-status}'
+      Tags:
+        - Key: Name
+          Value: !Sub '${BankName}-${Environment}-VPCFlowLogs'
+        - Key: Purpose
+          Value: 'Compliance and Security Monitoring'
+
+Outputs:
+  VPCId:
+    Description: 'VPC ID'
+    Value: !Ref SecureBankVPC
+    Export:
+      Name: !Sub '${AWS::StackName}-VPC-ID'
+  
+  PublicSubnets:
+    Description: 'Public subnet IDs'
+    Value: !Join [',', [!Ref PublicSubnetAZ1, !Ref PublicSubnetAZ2]]
+    Export:
+      Name: !Sub '${AWS::StackName}-PublicSubnets'
+  
+  PrivateSubnets:
+    Description: 'Private subnet IDs'
+    Value: !Join [',', [!Ref PrivateSubnetAZ1, !Ref PrivateSubnetAZ2]]
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivateSubnets'
+  
+  DatabaseSubnets:
+    Description: 'Database subnet IDs'
+    Value: !Join [',', [!Ref DatabaseSubnetAZ1, !Ref DatabaseSubnetAZ2]]
+    Export:
+      Name: !Sub '${AWS::StackName}-DatabaseSubnets'
+  
+  DatabaseSubnetGroup:
+    Description: 'Database subnet group name'
+    Value: !Ref DatabaseSubnetGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-DBSubnetGroup'
+  
+  WebTierSecurityGroup:
+    Description: 'Web tier security group ID'
+    Value: !Ref WebTierSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-WebTierSG'
+  
+  ApplicationTierSecurityGroup:
+    Description: 'Application tier security group ID'
+    Value: !Ref ApplicationTierSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-AppTierSG'
+  
+  DatabaseTierSecurityGroup:
+    Description: 'Database tier security group ID'
+    Value: !Ref DatabaseTierSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-DBTierSG'
+
+  NetworkArchitecture:
+    Description: 'Network architecture summary'
+    Value: !Sub |
+      VPC: ${VPCCidr}
+      Public Subnets: ${PublicSubnetAZ1} (${!Select [0, !Cidr [!Ref VPCCidr, 8, 8]]}), ${PublicSubnetAZ2} (${!Select [1, !Cidr [!Ref VPCCidr, 8, 8]]})
+      Private Subnets: ${PrivateSubnetAZ1} (${!Select [2, !Cidr [!Ref VPCCidr, 8, 8]]}), ${PrivateSubnetAZ2} (${!Select [3, !Cidr [!Ref VPCCidr, 8, 8]]})
+      Database Subnets: ${DatabaseSubnetAZ1} (${!Select [4, !Cidr [!Ref VPCCidr, 8, 8]]}), ${DatabaseSubnetAZ2} (${!Select [5, !Cidr [!Ref VPCCidr, 8, 8]]})
+
+  DeploymentInstructions:
+    Description: 'Post-deployment validation steps'
+    Value: |
+      1. Verify VPC and subnets are created in correct AZs
+      2. Test internet connectivity from public subnets
+      3. Test NAT gateway functionality from private subnets
+      4. Validate security group rules
+      5. Check VPC Flow Logs are being generated
+      6. Test VPC endpoints connectivity

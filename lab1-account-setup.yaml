@@ -1,0 +1,206 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Lab 1: SecureBank AWS Account Setup and Billing Alerts'
+
+Parameters:
+  AlertEmail:
+    Type: String
+    Description: 'Email address for billing and security alerts'
+    Default: 'admin@securebank.com'
+    AllowedPattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    ConstraintDescription: 'Must be a valid email address'
+  
+  Environment:
+    Type: String
+    Description: 'Environment name'
+    Default: 'dev'
+    AllowedValues: ['dev', 'staging', 'prod']
+  
+  BankName:
+    Type: String
+    Description: 'Bank name for resource naming'
+    Default: 'SecureBank'
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9]*$'
+
+Resources:
+  # SNS Topic for Billing Alerts
+  BillingAlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${BankName}-${Environment}-BillingAlerts'
+      DisplayName: !Sub '${BankName} Billing Alerts'
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlertEmail
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: 'Banking-Compliance-Monitoring'
+        - Key: DataClassification
+          Value: 'Internal'
+
+  # CloudWatch Billing Alarm - $100 threshold
+  BillingAlarm100:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${BankName}-${Environment}-Billing-100USD'
+      AlarmDescription: 'Alert when monthly charges exceed $100'
+      MetricName: EstimatedCharges
+      Namespace: AWS/Billing
+      Statistic: Maximum
+      Period: 86400
+      EvaluationPeriods: 1
+      Threshold: 100
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      AlarmActions:
+        - !Ref BillingAlertTopic
+      TreatMissingData: notBreaching
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: CriticalityLevel
+          Value: 'Medium'
+
+  # CloudWatch Billing Alarm - $500 threshold
+  BillingAlarm500:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${BankName}-${Environment}-Billing-500USD'
+      AlarmDescription: 'Alert when monthly charges exceed $500'
+      MetricName: EstimatedCharges
+      Namespace: AWS/Billing
+      Statistic: Maximum
+      Period: 86400
+      EvaluationPeriods: 1
+      Threshold: 500
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      AlarmActions:
+        - !Ref BillingAlertTopic
+      TreatMissingData: notBreaching
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: CriticalityLevel
+          Value: 'High'
+
+  # CloudWatch Billing Alarm - $1000 threshold (Critical)
+  BillingAlarm1000:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${BankName}-${Environment}-Billing-1000USD'
+      AlarmDescription: 'CRITICAL: Monthly charges exceed $1000'
+      MetricName: EstimatedCharges
+      Namespace: AWS/Billing
+      Statistic: Maximum
+      Period: 86400
+      EvaluationPeriods: 1
+      Threshold: 1000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      AlarmActions:
+        - !Ref BillingAlertTopic
+      TreatMissingData: notBreaching
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: CriticalityLevel
+          Value: 'Critical'
+
+  # Budget for monthly spending
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Sub '${BankName}-${Environment}-MonthlyBudget'
+        BudgetLimit:
+          Amount: 1000
+          Unit: USD
+        TimeUnit: MONTHLY
+        BudgetType: COST
+        CostFilters:
+          Service:
+            - Amazon Elastic Compute Cloud - Compute
+            - Amazon Simple Storage Service
+            - Amazon Virtual Private Cloud
+            - AWS Identity and Access Management
+            - AWS CloudFormation
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+
+  # Additional CloudWatch Alarm for EC2 costs
+  EC2CostAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${BankName}-${Environment}-EC2-Cost-Alert'
+      AlarmDescription: 'Alert when EC2 monthly charges exceed $200'
+      MetricName: EstimatedCharges
+      Namespace: AWS/Billing
+      Statistic: Maximum
+      Period: 86400
+      EvaluationPeriods: 1
+      Threshold: 200
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: Currency
+          Value: USD
+        - Name: ServiceName
+          Value: AmazonEC2
+      AlarmActions:
+        - !Ref BillingAlertTopic
+      TreatMissingData: notBreaching
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: EC2
+
+Outputs:
+  BillingTopicArn:
+    Description: 'ARN of the billing alerts SNS topic'
+    Value: !Ref BillingAlertTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-BillingTopic'
+  
+  BudgetName:
+    Description: 'Name of the monthly budget'
+    Value: !Ref MonthlyBudget
+    Export:
+      Name: !Sub '${AWS::StackName}-Budget'
+  
+  BillingAlarms:
+    Description: 'List of billing alarm names'
+    Value: !Sub '${BillingAlarm100}, ${BillingAlarm500}, ${BillingAlarm1000}, ${EC2CostAlarm}'
+    Export:
+      Name: !Sub '${AWS::StackName}-BillingAlarms'
+
+  DeploymentInstructions:
+    Description: 'Deployment instructions'
+    Value: |
+      1. Deploy this template in us-east-1 region (required for billing metrics)
+      2. Confirm email subscription in your inbox
+      3. Verify billing alerts are working by checking CloudWatch console
+      4. Monitor budget utilization in AWS Budgets console
+      5. Test alarms by checking CloudWatch Alarms in the console

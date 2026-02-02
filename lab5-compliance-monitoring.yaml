@@ -1,0 +1,628 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Lab 5: SecureBank Compliance Monitoring and Security Controls'
+
+Parameters:
+  BankName:
+    Type: String
+    Description: 'Bank name for resource naming'
+    Default: 'SecureBank'
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9]*$'
+  
+  Environment:
+    Type: String
+    Description: 'Environment name'
+    Default: 'dev'
+    AllowedValues: ['dev', 'staging', 'prod']
+  
+  ComplianceEmail:
+    Type: String
+    Description: 'Email for compliance notifications'
+    Default: 'compliance@securebank.com'
+    AllowedPattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+  
+  SecurityEmail:
+    Type: String
+    Description: 'Email for security alerts'
+    Default: 'security@securebank.com'
+    AllowedPattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, 'prod']
+
+Resources:
+  # ============================================================================
+  # SNS TOPICS FOR COMPLIANCE AND SECURITY ALERTS
+  # ============================================================================
+  
+  ComplianceAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${BankName}-${Environment}-ComplianceAlerts'
+      DisplayName: 'SecureBank Compliance Alerts'
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref ComplianceEmail
+      KmsMasterKeyId: alias/aws/sns
+
+  SecurityAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${BankName}-${Environment}-SecurityAlerts'
+      DisplayName: 'SecureBank Security Alerts'
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref SecurityEmail
+      KmsMasterKeyId: alias/aws/sns
+
+  # ============================================================================
+  # CLOUDTRAIL FOR AUDIT LOGGING
+  # ============================================================================
+  
+  # S3 Bucket for CloudTrail logs
+  CloudTrailLogsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${BankName}-${Environment}-cloudtrail-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: 'CloudTrailLogRetention'
+            Status: Enabled
+            ExpirationInDays: !If [IsProduction, 2555, 365]  # 7 years for prod
+            Transitions:
+              - TransitionInDays: 30
+                StorageClass: STANDARD_IA
+              - TransitionInDays: 90
+                StorageClass: GLACIER
+      NotificationConfiguration:
+        TopicConfigurations:
+          - Topic: !Ref SecurityAlertsTopic
+            Event: 's3:ObjectCreated:*'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: 'CloudTrail Audit Logs'
+        - Key: DataClassification
+          Value: 'Restricted'
+
+  # CloudTrail Bucket Policy
+  CloudTrailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CloudTrailLogsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: 'AWSCloudTrailAclCheck'
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: 's3:GetBucketAcl'
+            Resource: !Sub '${CloudTrailLogsBucket}'
+          - Sid: 'AWSCloudTrailWrite'
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: 's3:PutObject'
+            Resource: !Sub '${CloudTrailLogsBucket}/*'
+            Condition:
+              StringEquals:
+                's3:x-amz-acl': 'bucket-owner-full-control'
+
+  # CloudTrail
+  SecureBankCloudTrail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn: CloudTrailBucketPolicy
+    Properties:
+      TrailName: !Sub '${BankName}-${Environment}-AuditTrail'
+      S3BucketName: !Ref CloudTrailLogsBucket
+      S3KeyPrefix: 'cloudtrail-logs/'
+      IncludeGlobalServiceEvents: true
+      IsMultiRegionTrail: true
+      EnableLogFileValidation: true
+      EventSelectors:
+        - ReadWriteType: All
+          IncludeManagementEvents: true
+          DataResources:
+            - Type: 'AWS::S3::Object'
+              Values: 
+                - !Sub '${BankName}-${Environment}-*/*'
+            - Type: 'AWS::Lambda::Function'
+              Values: 
+                - !Sub 'arn:aws:lambda:*:${AWS::AccountId}:function:${BankName}-*'
+      InsightSelectors:
+        - InsightType: ApiCallRateInsight
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: 'Banking Compliance Audit'
+
+  # ============================================================================
+  # AWS CONFIG FOR COMPLIANCE MONITORING
+  # ============================================================================
+  
+  # Config Service Role
+  ConfigRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: config.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/ConfigRole'
+      Policies:
+        - PolicyName: 'ConfigBucketDeliveryRolePolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:GetBucketAcl'
+                  - 's3:ListBucket'
+                Resource: !Sub '${ConfigBucket}'
+              - Effect: Allow
+                Action: 's3:PutObject'
+                Resource: !Sub '${ConfigBucket}/*'
+                Condition:
+                  StringEquals:
+                    's3:x-amz-acl': 'bucket-owner-full-control'
+
+  # Config Bucket
+  ConfigBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${BankName}-${Environment}-config-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # Configuration Recorder
+  ConfigurationRecorder:
+    Type: AWS::Config::ConfigurationRecorder
+    Properties:
+      Name: !Sub '${BankName}-${Environment}-ConfigRecorder'
+      RoleARN: !GetAtt ConfigRole.Arn
+      RecordingGroup:
+        AllSupported: true
+        IncludeGlobalResourceTypes: true
+
+  # Delivery Channel
+  DeliveryChannel:
+    Type: AWS::Config::DeliveryChannel
+    Properties:
+      Name: !Sub '${BankName}-${Environment}-DeliveryChannel'
+      S3BucketName: !Ref ConfigBucket
+      ConfigSnapshotDeliveryProperties:
+        DeliveryFrequency: Daily
+
+  # ============================================================================
+  # CONFIG RULES FOR BANKING COMPLIANCE
+  # ============================================================================
+  
+  # S3 Bucket Public Access Prohibited
+  S3BucketPublicAccessProhibited:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigurationRecorder
+    Properties:
+      ConfigRuleName: 's3-bucket-public-access-prohibited'
+      Description: 'Checks that S3 buckets do not allow public access'
+      Source:
+        Owner: AWS
+        SourceIdentifier: S3_BUCKET_PUBLIC_ACCESS_PROHIBITED
+      Scope:
+        ComplianceResourceTypes:
+          - 'AWS::S3::Bucket'
+
+  # Encrypted Volumes
+  EncryptedVolumes:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigurationRecorder
+    Properties:
+      ConfigRuleName: 'encrypted-volumes'
+      Description: 'Checks that EBS volumes are encrypted'
+      Source:
+        Owner: AWS
+        SourceIdentifier: ENCRYPTED_VOLUMES
+      Scope:
+        ComplianceResourceTypes:
+          - 'AWS::EC2::Volume'
+
+  # RDS Storage Encrypted
+  RDSStorageEncrypted:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigurationRecorder
+    Properties:
+      ConfigRuleName: 'rds-storage-encrypted'
+      Description: 'Checks that RDS instances use encryption'
+      Source:
+        Owner: AWS
+        SourceIdentifier: RDS_STORAGE_ENCRYPTED
+      Scope:
+        ComplianceResourceTypes:
+          - 'AWS::RDS::DBInstance'
+
+  # CloudTrail Enabled
+  CloudTrailEnabled:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigurationRecorder
+    Properties:
+      ConfigRuleName: 'cloudtrail-enabled'
+      Description: 'Checks that CloudTrail is enabled'
+      Source:
+        Owner: AWS
+        SourceIdentifier: CLOUD_TRAIL_ENABLED
+
+  # MFA Enabled for IAM Console Access
+  MFAEnabledForIAMConsoleAccess:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigurationRecorder
+    Properties:
+      ConfigRuleName: 'mfa-enabled-for-iam-console-access'
+      Description: 'Checks that MFA is enabled for IAM users with console access'
+      Source:
+        Owner: AWS
+        SourceIdentifier: MFA_ENABLED_FOR_IAM_CONSOLE_ACCESS
+
+  # Root Access Key Check
+  RootAccessKeyCheck:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigurationRecorder
+    Properties:
+      ConfigRuleName: 'root-access-key-check'
+      Description: 'Checks that root user does not have access keys'
+      Source:
+        Owner: AWS
+        SourceIdentifier: ROOT_ACCESS_KEY_CHECK
+
+  # IAM Password Policy
+  IAMPasswordPolicy:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigurationRecorder
+    Properties:
+      ConfigRuleName: 'iam-password-policy'
+      Description: 'Checks that IAM password policy meets requirements'
+      Source:
+        Owner: AWS
+        SourceIdentifier: IAM_PASSWORD_POLICY
+      InputParameters: |
+        {
+          "RequireUppercaseCharacters": "true",
+          "RequireLowercaseCharacters": "true",
+          "RequireSymbols": "true",
+          "RequireNumbers": "true",
+          "MinimumPasswordLength": "12",
+          "PasswordReusePrevention": "12",
+          "MaxPasswordAge": "90"
+        }
+
+  # ============================================================================
+  # GUARDDUTY FOR THREAT DETECTION
+  # ============================================================================
+  
+  GuardDutyDetector:
+    Type: AWS::GuardDuty::Detector
+    Properties:
+      Enable: true
+      FindingPublishingFrequency: FIFTEEN_MINUTES
+      DataSources:
+        S3Logs:
+          Enable: true
+        MalwareProtection:
+          ScanEc2InstanceWithFindings:
+            EbsVolumes:
+              Enable: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: 'Banking Security Monitoring'
+
+  # GuardDuty Custom Threat Intel Set (Banking-specific)
+  BankingThreatIntelSet:
+    Type: AWS::GuardDuty::ThreatIntelSet
+    Properties:
+      Activate: true
+      DetectorId: !Ref GuardDutyDetector
+      Format: TXT
+      Location: !Sub 's3://${AWS::StackName}-threat-intel-${AWS::AccountId}/banking-threats.txt'
+      Name: 'Banking-Specific-Threats'
+
+  # ============================================================================
+  # SECURITY HUB FOR CENTRALIZED SECURITY
+  # ============================================================================
+  
+  SecurityHub:
+    Type: AWS::SecurityHub::Hub
+    Properties:
+      Tags:
+        Environment: !Ref Environment
+        Purpose: 'Banking Security Compliance'
+
+  # Note: Security Hub Standards must be enabled manually through the AWS Console
+  # The following standards are recommended for banking compliance:
+  # - AWS Foundational Security Best Practices
+  # - PCI DSS v3.2.1
+  # - CIS AWS Foundations Benchmark
+  # These cannot be enabled via CloudFormation in all regions/accounts
+
+  # ============================================================================
+  # CLOUDWATCH ALARMS FOR COMPLIANCE VIOLATIONS
+  # ============================================================================
+  
+  # Config Compliance Alarm
+  ConfigComplianceAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${BankName}-${Environment}-Config-NonCompliant'
+      AlarmDescription: 'Alert when Config rules are non-compliant'
+      MetricName: ComplianceByConfigRule
+      Namespace: AWS/Config
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref ComplianceAlertsTopic
+
+  # GuardDuty Findings Alarm
+  GuardDutyFindingsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${BankName}-${Environment}-GuardDuty-HighSeverity'
+      AlarmDescription: 'Alert on high severity GuardDuty findings'
+      MetricName: FindingCount
+      Namespace: AWS/GuardDuty
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: DetectorId
+          Value: !Ref GuardDutyDetector
+      AlarmActions:
+        - !Ref SecurityAlertsTopic
+
+  # ============================================================================
+  # COMPLIANCE DASHBOARD
+  # ============================================================================
+  
+  ComplianceDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${BankName}-${Environment}-Compliance'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/Config", "ComplianceByConfigRule", "RuleName", "s3-bucket-public-access-prohibited", "ComplianceType", "COMPLIANT" ],
+                  [ "...", "NON_COMPLIANT" ],
+                  [ "...", "encrypted-volumes", ".", "COMPLIANT" ],
+                  [ "...", "NON_COMPLIANT" ]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${AWS::Region}",
+                "title": "Config Rule Compliance Status"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/GuardDuty", "FindingCount", "DetectorId", "${GuardDutyDetector}" ]
+                ],
+                "period": 3600,
+                "stat": "Sum",
+                "region": "${AWS::Region}",
+                "title": "GuardDuty Findings"
+              }
+            },
+            {
+              "type": "log",
+              "x": 0,
+              "y": 6,
+              "width": 24,
+              "height": 6,
+              "properties": {
+                "query": "SOURCE '${CloudTrailLogsBucket}'\n| fields @timestamp, eventName, sourceIPAddress, userIdentity.type\n| filter eventName like /Delete/ or eventName like /Terminate/\n| sort @timestamp desc\n| limit 50",
+                "region": "${AWS::Region}",
+                "title": "Recent High-Risk API Calls"
+              }
+            }
+          ]
+        }
+
+  # ============================================================================
+  # AUTOMATED REMEDIATION LAMBDA
+  # ============================================================================
+  
+  RemediationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: 'RemediationPolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:PutBucketPublicAccessBlock'
+                  - 's3:PutBucketAcl'
+                  - 'ec2:ModifySnapshotAttribute'
+                  - 'rds:ModifyDBInstance'
+                  - 'sns:Publish'
+                Resource: '*'
+
+  AutoRemediationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${BankName}-${Environment}-AutoRemediation'
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !GetAtt RemediationRole.Arn
+      Timeout: 300
+      Environment:
+        Variables:
+          COMPLIANCE_TOPIC: !Ref ComplianceAlertsTopic
+          BANK_NAME: !Ref BankName
+          ENVIRONMENT: !Ref Environment
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import logging
+          import os
+          
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          
+          s3 = boto3.client('s3')
+          sns = boto3.client('sns')
+          
+          def lambda_handler(event, context):
+              """
+              Automated remediation for common compliance violations
+              """
+              
+              try:
+                  # Parse Config rule compliance change event
+                  if 'source' in event and event['source'] == 'aws.config':
+                      detail = event['detail']
+                      
+                      if detail['newEvaluationResult']['complianceType'] == 'NON_COMPLIANT':
+                          config_rule_name = detail['configRuleName']
+                          resource_id = detail['resourceId']
+                          resource_type = detail['resourceType']
+                          
+                          logger.info(f"Processing non-compliant resource: {resource_id}")
+                          
+                          # Auto-remediate S3 bucket public access
+                          if config_rule_name == 's3-bucket-public-access-prohibited' and resource_type == 'AWS::S3::Bucket':
+                              remediate_s3_public_access(resource_id)
+                          
+                          # Send notification
+                          send_compliance_notification(config_rule_name, resource_id, resource_type)
+                  
+              except Exception as e:
+                  logger.error(f"Error in auto-remediation: {str(e)}")
+                  raise
+              
+              return {'statusCode': 200, 'body': json.dumps('Remediation completed')}
+          
+          def remediate_s3_public_access(bucket_name):
+              """Remediate S3 bucket public access"""
+              try:
+                  s3.put_public_access_block(
+                      Bucket=bucket_name,
+                      PublicAccessBlockConfiguration={
+                          'BlockPublicAcls': True,
+                          'IgnorePublicAcls': True,
+                          'BlockPublicPolicy': True,
+                          'RestrictPublicBuckets': True
+                      }
+                  )
+                  logger.info(f"Remediated public access for bucket: {bucket_name}")
+              except Exception as e:
+                  logger.error(f"Failed to remediate bucket {bucket_name}: {str(e)}")
+          
+          def send_compliance_notification(rule_name, resource_id, resource_type):
+              """Send compliance notification"""
+              message = f"""
+              COMPLIANCE ALERT - Auto-Remediation Performed
+              
+              Rule: {rule_name}
+              Resource: {resource_id}
+              Type: {resource_type}
+              Environment: {os.environ['ENVIRONMENT']}
+              
+              Automated remediation has been attempted. Please verify the changes.
+              """
+              
+              sns.publish(
+                  TopicArn=os.environ['COMPLIANCE_TOPIC'],
+                  Subject=f"Auto-Remediation: {rule_name}",
+                  Message=message
+              )
+
+Outputs:
+  CloudTrailArn:
+    Description: 'ARN of the CloudTrail'
+    Value: !GetAtt SecureBankCloudTrail.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CloudTrail'
+  
+  GuardDutyDetectorId:
+    Description: 'GuardDuty Detector ID'
+    Value: !Ref GuardDutyDetector
+    Export:
+      Name: !Sub '${AWS::StackName}-GuardDutyDetector'
+  
+  SecurityHubArn:
+    Description: 'Security Hub ARN'
+    Value: !Sub 'arn:aws:securityhub:${AWS::Region}:${AWS::AccountId}:hub/default'
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityHub'
+  
+  ComplianceDashboardURL:
+    Description: 'URL to the compliance dashboard'
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${BankName}-${Environment}-Compliance'
+  
+  ConfigBucketName:
+    Description: 'Name of the Config S3 bucket'
+    Value: !Ref ConfigBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-ConfigBucket'
+
+  DeploymentInstructions:
+    Description: 'Post-deployment validation steps'
+    Value: |
+      1. Verify CloudTrail is logging events to S3
+      2. Check Config rules are evaluating resources
+      3. Confirm GuardDuty is generating findings (if any)
+      4. Review Security Hub compliance status
+      5. Test automated remediation by creating a non-compliant resource
+      6. Verify email notifications are working
+      7. Set up regular compliance reporting schedule

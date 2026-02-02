@@ -1,0 +1,341 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Lab 2: SecureBank IAM Roles and Policies for Banking Operations'
+
+Parameters:
+  BankName:
+    Type: String
+    Description: 'Bank name for resource naming'
+    Default: 'SecureBank'
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9]*$'
+  
+  Environment:
+    Type: String
+    Description: 'Environment name'
+    Default: 'dev'
+    AllowedValues: ['dev', 'staging', 'prod']
+  
+  ComplianceLevel:
+    Type: String
+    Description: 'Banking compliance level'
+    Default: 'Standard'
+    AllowedValues: ['Standard', 'Enhanced', 'Critical']
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, 'prod']
+  IsEnhancedCompliance: !Or [!Equals [!Ref ComplianceLevel, 'Enhanced'], !Equals [!Ref ComplianceLevel, 'Critical']]
+
+Resources:
+  # ============================================================================
+  # LOAN OFFICERS GROUP AND POLICIES
+  # ============================================================================
+  
+  LoanOfficersGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: !Sub '${BankName}-${Environment}-LoanOfficers'
+      Path: '/banking/loan-officers/'
+      ManagedPolicyArns:
+        - !Ref LoanOfficerPolicy
+        - !Ref BankingBasePolicy
+
+  LoanOfficerPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${BankName}-${Environment}-LoanOfficerPolicy'
+      Description: 'Policy for loan officers - document processing and limited AI access'
+      Path: '/banking/policies/'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Document Processing Permissions
+          - Sid: 'DocumentProcessingAccess'
+            Effect: Allow
+            Action:
+              - 'textract:AnalyzeDocument'
+              - 'textract:DetectDocumentText'
+              - 'textract:AnalyzeExpense'
+              - 'textract:AnalyzeID'
+              - 'comprehend:DetectEntities'
+              - 'comprehend:DetectSentiment'
+              - 'comprehend:DetectKeyPhrases'
+            Resource: '*'
+            Condition:
+              StringEquals:
+                'aws:RequestedRegion': 
+                  - 'us-east-1'
+                  - 'us-west-2'
+          
+          # S3 Access for Loan Documents
+          - Sid: 'LoanDocumentsBucketAccess'
+            Effect: Allow
+            Action:
+              - 's3:GetObject'
+              - 's3:PutObject'
+              - 's3:DeleteObject'
+            Resource: 
+              - !Sub 'arn:aws:s3:::${BankName}-${Environment}-loan-documents/*'
+            Condition:
+              StringEquals:
+                's3:x-amz-server-side-encryption': 'AES256'
+          
+          # Limited S3 Bucket Listing
+          - Sid: 'LoanDocumentsBucketList'
+            Effect: Allow
+            Action:
+              - 's3:ListBucket'
+            Resource: !Sub 'arn:aws:s3:::${BankName}-${Environment}-loan-documents'
+          
+          # CloudWatch Logs for Audit
+          - Sid: 'AuditLogsAccess'
+            Effect: Allow
+            Action:
+              - 'logs:CreateLogStream'
+              - 'logs:PutLogEvents'
+            Resource: !Sub 'arn:aws:logs:*:${AWS::AccountId}:log-group:/banking/loan-processing:*'
+
+  # ============================================================================
+  # RISK ANALYSTS GROUP AND POLICIES
+  # ============================================================================
+  
+  RiskAnalystsGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: !Sub '${BankName}-${Environment}-RiskAnalysts'
+      Path: '/banking/risk-analysts/'
+      ManagedPolicyArns:
+        - !Ref RiskAnalystPolicy
+        - !Ref BankingBasePolicy
+
+  RiskAnalystPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${BankName}-${Environment}-RiskAnalystPolicy'
+      Description: 'Policy for risk analysts - advanced analytics and reporting'
+      Path: '/banking/policies/'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Advanced Analytics Permissions
+          - Sid: 'AdvancedAnalyticsAccess'
+            Effect: Allow
+            Action:
+              - 'comprehend:*'
+              - 'textract:*'
+              - 'forecast:*'
+              - 'personalize:GetRecommendations'
+              - 'personalize:GetPersonalizedRanking'
+            Resource: '*'
+            Condition:
+              StringEquals:
+                'aws:RequestedRegion': 
+                  - 'us-east-1'
+                  - 'us-west-2'
+          
+          # Data Access for Risk Analysis
+          - Sid: 'RiskDataAccess'
+            Effect: Allow
+            Action:
+              - 's3:GetObject'
+              - 's3:ListBucket'
+            Resource: 
+              - !Sub 'arn:aws:s3:::${BankName}-${Environment}-risk-data'
+              - !Sub 'arn:aws:s3:::${BankName}-${Environment}-risk-data/*'
+              - !Sub 'arn:aws:s3:::${BankName}-${Environment}-loan-documents'
+              - !Sub 'arn:aws:s3:::${BankName}-${Environment}-loan-documents/*'
+          
+          # QuickSight Access for Reporting
+          - Sid: 'QuickSightAccess'
+            Effect: Allow
+            Action:
+              - 'quicksight:CreateAnalysis'
+              - 'quicksight:CreateDashboard'
+              - 'quicksight:DescribeAnalysis'
+              - 'quicksight:DescribeDashboard'
+              - 'quicksight:GetDashboardEmbedUrl'
+            Resource: '*'
+            Condition:
+              StringLike:
+                'quicksight:UserName': '${aws:username}'
+
+  # ============================================================================
+  # COMPLIANCE OFFICERS GROUP AND POLICIES
+  # ============================================================================
+  
+  ComplianceOfficersGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: !Sub '${BankName}-${Environment}-ComplianceOfficers'
+      Path: '/banking/compliance/'
+      ManagedPolicyArns:
+        - !Ref ComplianceOfficerPolicy
+        - !Ref BankingBasePolicy
+
+  ComplianceOfficerPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${BankName}-${Environment}-ComplianceOfficerPolicy'
+      Description: 'Policy for compliance officers - audit and monitoring access'
+      Path: '/banking/policies/'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Audit and Compliance Access
+          - Sid: 'AuditAccess'
+            Effect: Allow
+            Action:
+              - 'cloudtrail:LookupEvents'
+              - 'cloudtrail:GetTrailStatus'
+              - 'config:GetComplianceDetailsByConfigRule'
+              - 'config:GetComplianceSummaryByConfigRule'
+              - 'config:DescribeConfigRules'
+              - 'config:DescribeComplianceByConfigRule'
+            Resource: '*'
+          
+          # Security Hub Access
+          - Sid: 'SecurityHubAccess'
+            Effect: Allow
+            Action:
+              - 'securityhub:GetFindings'
+              - 'securityhub:GetInsights'
+              - 'securityhub:GetInsightResults'
+              - 'securityhub:DescribeHub'
+            Resource: '*'
+          
+          # GuardDuty Access
+          - Sid: 'GuardDutyAccess'
+            Effect: Allow
+            Action:
+              - 'guardduty:GetFindings'
+              - 'guardduty:ListFindings'
+              - 'guardduty:GetDetector'
+              - 'guardduty:ListDetectors'
+            Resource: '*'
+          
+          # Read-only S3 Access for Audit Logs
+          - Sid: 'AuditLogsReadAccess'
+            Effect: Allow
+            Action:
+              - 's3:GetObject'
+              - 's3:ListBucket'
+            Resource: 
+              - !Sub 'arn:aws:s3:::${BankName}-${Environment}-audit-logs'
+              - !Sub 'arn:aws:s3:::${BankName}-${Environment}-audit-logs/*'
+
+  # ============================================================================
+  # BASE BANKING POLICY (COMMON TO ALL ROLES)
+  # ============================================================================
+  
+  BankingBasePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${BankName}-${Environment}-BankingBasePolicy'
+      Description: 'Base policy for all banking personnel'
+      Path: '/banking/policies/'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # MFA Requirement (simplified)
+          - Sid: 'RequireMFAForSensitiveActions'
+            Effect: Deny
+            Action: 
+              - 'iam:*'
+              - 's3:Delete*'
+              - 'ec2:Terminate*'
+            Resource: '*'
+            Condition:
+              BoolIfExists:
+                'aws:MultiFactorAuthPresent': 'false'
+          
+          # Basic AWS Service Access
+          - Sid: 'BasicAWSAccess'
+            Effect: Allow
+            Action:
+              - 'iam:GetUser'
+              - 'iam:ChangePassword'
+              - 'iam:GetAccountPasswordPolicy'
+              - 'sts:GetCallerIdentity'
+              - 'support:DescribeServices'
+              - 'support:DescribeSeverityLevels'
+            Resource: '*'
+          
+          # CloudWatch Metrics (Read-only)
+          - Sid: 'CloudWatchMetricsRead'
+            Effect: Allow
+            Action:
+              - 'cloudwatch:GetMetricStatistics'
+              - 'cloudwatch:ListMetrics'
+              - 'cloudwatch:DescribeAlarms'
+            Resource: '*'
+
+  # ============================================================================
+  # SERVICE ROLES FOR APPLICATIONS
+  # ============================================================================
+  
+  DocumentProcessingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${BankName}-${Environment}-DocumentProcessingRole'
+      Path: '/banking/service-roles/'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'aws:SourceAccount': !Ref 'AWS::AccountId'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: 'DocumentProcessingPolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'textract:*'
+                  - 'comprehend:*'
+                  - 's3:GetObject'
+                  - 's3:PutObject'
+                Resource: '*'
+      Tags:
+        - Key: Purpose
+          Value: 'Document Processing Service'
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  LoanOfficersGroupArn:
+    Description: 'ARN of the Loan Officers group'
+    Value: !GetAtt LoanOfficersGroup.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-LoanOfficersGroup'
+  
+  RiskAnalystsGroupArn:
+    Description: 'ARN of the Risk Analysts group'
+    Value: !GetAtt RiskAnalystsGroup.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RiskAnalystsGroup'
+  
+  ComplianceOfficersGroupArn:
+    Description: 'ARN of the Compliance Officers group'
+    Value: !GetAtt ComplianceOfficersGroup.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ComplianceOfficersGroup'
+  
+  DocumentProcessingRoleArn:
+    Description: 'ARN of the Document Processing service role'
+    Value: !GetAtt DocumentProcessingRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-DocumentProcessingRole'
+
+  DeploymentInstructions:
+    Description: 'Post-deployment steps'
+    Value: |
+      1. Create IAM users and assign to appropriate groups
+      2. Enforce MFA for all users
+      3. Test permissions with AWS CLI/Console
+      4. Review CloudTrail logs for access patterns
+      5. Set up regular access reviews
