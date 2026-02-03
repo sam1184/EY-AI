@@ -1,0 +1,659 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'SecureBank Day 2 Lab 3: Security Groups & EC2 Multi-Tier Deployment'
+
+Parameters:
+  EnvironmentName:
+    Description: Environment name prefix for resources
+    Type: String
+    Default: SecureBank-Day2-Lab3
+  
+  KeyPairName:
+    Description: EC2 Key Pair for SSH access
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: securebank-keypair
+    
+  MyIPAddress:
+    Description: Your IP address for SSH access (use 0.0.0.0/0 for lab purposes only)
+    Type: String
+    Default: 0.0.0.0/0
+
+Resources:
+  # VPC for the lab
+  SecureBankVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.3.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-VPC'
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-IGW'
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref SecureBankVPC
+
+  # Public Subnet (Web Tier)
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.3.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-Public-Subnet'
+        - Key: Tier
+          Value: Web
+
+  # Private Subnet (Application Tier)
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.3.2.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-Private-Subnet'
+        - Key: Tier
+          Value: Application
+
+  # Database Subnet
+  DatabaseSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.3.3.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-Database-Subnet'
+        - Key: Tier
+          Value: Database
+
+  # NAT Gateway for private subnet internet access
+  NatGatewayEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+
+  # Route Tables
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-Public-Routes'
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-Private-Routes'
+
+  DefaultPrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet
+
+  # Security Groups with Defense in Depth
+  # Note: Security groups are created without cross-references first,
+  # then ingress/egress rules are added separately to avoid circular dependencies
+  
+  # Web Tier Security Group (Public facing)
+  WebTierSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${EnvironmentName}-WebTier-SG'
+      GroupDescription: Security group for web tier (load balancers, web servers)
+      VpcId: !Ref SecureBankVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP from internet
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS from internet
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref MyIPAddress
+          Description: SSH from admin IP
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP to internet for updates
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS to internet for updates
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-WebTier-SecurityGroup'
+        - Key: Tier
+          Value: Web
+
+  # Application Tier Security Group (Private)
+  AppTierSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${EnvironmentName}-AppTier-SG'
+      GroupDescription: Security group for application tier
+      VpcId: !Ref SecureBankVPC
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP to internet for updates
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS to internet for updates
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-AppTier-SecurityGroup'
+        - Key: Tier
+          Value: Application
+
+  # Database Tier Security Group (Most restrictive)
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${EnvironmentName}-DatabaseTier-SG'
+      GroupDescription: Security group for database tier
+      VpcId: !Ref SecureBankVPC
+      # No outbound rules - database should not initiate outbound connections
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-DatabaseTier-SecurityGroup'
+        - Key: Tier
+          Value: Database
+
+  # Bastion Host Security Group
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${EnvironmentName}-Bastion-SG'
+      GroupDescription: Security group for bastion host
+      VpcId: !Ref SecureBankVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref MyIPAddress
+          Description: SSH from admin IP
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-Bastion-SecurityGroup'
+
+  # Security Group Rules (added separately to avoid circular dependencies)
+  
+  # Web Tier to App Tier communication
+  WebToAppEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref WebTierSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8080
+      ToPort: 8080
+      DestinationSecurityGroupId: !Ref AppTierSecurityGroup
+      Description: Application traffic to app tier
+
+  AppFromWebIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppTierSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8080
+      ToPort: 8080
+      SourceSecurityGroupId: !Ref WebTierSecurityGroup
+      Description: Application traffic from web tier
+
+  # App Tier to Database Tier communication
+  AppToDatabaseMySQLEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref AppTierSecurityGroup
+      IpProtocol: tcp
+      FromPort: 3306
+      ToPort: 3306
+      DestinationSecurityGroupId: !Ref DatabaseSecurityGroup
+      Description: MySQL to database tier
+
+  AppToDatabasePostgreSQLEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref AppTierSecurityGroup
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      DestinationSecurityGroupId: !Ref DatabaseSecurityGroup
+      Description: PostgreSQL to database tier
+
+  DatabaseFromAppMySQLIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DatabaseSecurityGroup
+      IpProtocol: tcp
+      FromPort: 3306
+      ToPort: 3306
+      SourceSecurityGroupId: !Ref AppTierSecurityGroup
+      Description: MySQL from application tier
+
+  DatabaseFromAppPostgreSQLIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DatabaseSecurityGroup
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !Ref AppTierSecurityGroup
+      Description: PostgreSQL from application tier
+
+  # Bastion to App Tier SSH
+  BastionToAppSSHEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref BastionSecurityGroup
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      DestinationSecurityGroupId: !Ref AppTierSecurityGroup
+      Description: SSH to application tier
+
+  AppFromBastionSSHIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppTierSecurityGroup
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      SourceSecurityGroupId: !Ref BastionSecurityGroup
+      Description: SSH from bastion host
+
+  # Bastion to Database Tier SSH
+  BastionToDatabaseSSHEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref BastionSecurityGroup
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      DestinationSecurityGroupId: !Ref DatabaseSecurityGroup
+      Description: SSH to database tier
+
+  DatabaseFromBastionSSHIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DatabaseSecurityGroup
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      SourceSecurityGroupId: !Ref BastionSecurityGroup
+      Description: SSH from bastion host
+
+  # IAM Role for EC2 instances
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: SecureBankEC2Policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: 
+                  - !Sub '${SecureBankS3Bucket}/*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2Role
+
+  # S3 Bucket for application data
+  SecureBankS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${EnvironmentName}-app-data-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # Web Server Instance
+  WebServerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0c02fb55956c7d316  # Amazon Linux 2 AMI
+      InstanceType: t3.micro
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref WebTierSecurityGroup
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd php php-mysql
+          systemctl start httpd
+          systemctl enable httpd
+          
+          # Create a simple banking web application
+          cat > /var/www/html/index.php << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>SecureBank - Web Tier</title>
+              <style>
+                  body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+                  .container { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                  .header { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+                  .status { background: #e8f5e8; padding: 15px; border-radius: 5px; margin: 20px 0; }
+                  .info { background: #f0f8ff; padding: 10px; border-radius: 5px; margin: 10px 0; }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <h1 class="header">🏦 SecureBank - Web Tier</h1>
+                  <div class="status">
+                      <h3>✅ Web Server Status: Active</h3>
+                      <p><strong>Server:</strong> <?php echo gethostname(); ?></p>
+                      <p><strong>IP Address:</strong> <?php echo $_SERVER['SERVER_ADDR']; ?></p>
+                      <p><strong>Timestamp:</strong> <?php echo date('Y-m-d H:i:s'); ?></p>
+                  </div>
+                  
+                  <div class="info">
+                      <h4>🔒 Security Configuration</h4>
+                      <ul>
+                          <li>HTTPS Ready (Port 443)</li>
+                          <li>HTTP Available (Port 80)</li>
+                          <li>SSH Access Restricted</li>
+                          <li>Application Tier Communication: Port 8080</li>
+                      </ul>
+                  </div>
+                  
+                  <div class="info">
+                      <h4>🌐 Network Configuration</h4>
+                      <ul>
+                          <li>VPC: ${SecureBankVPC}</li>
+                          <li>Subnet: Public (${PublicSubnet})</li>
+                          <li>Security Group: Web Tier</li>
+                          <li>Internet Gateway: Enabled</li>
+                      </ul>
+                  </div>
+                  
+                  <p><em>This is the web tier of SecureBank's multi-tier architecture.</em></p>
+              </div>
+          </body>
+          </html>
+          EOF
+          
+          # Set proper permissions
+          chown apache:apache /var/www/html/index.php
+          chmod 644 /var/www/html/index.php
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-WebServer'
+        - Key: Tier
+          Value: Web
+
+  # Application Server Instance
+  AppServerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0c02fb55956c7d316  # Amazon Linux 2 AMI
+      InstanceType: t3.micro
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PrivateSubnet
+      SecurityGroupIds:
+        - !Ref AppTierSecurityGroup
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y java-11-openjdk nodejs npm python3 pip3
+          
+          # Create a simple Node.js application server
+          mkdir -p /opt/securebank-app
+          cat > /opt/securebank-app/server.js << 'EOF'
+          const http = require('http');
+          const fs = require('fs');
+          
+          const server = http.createServer((req, res) => {
+              res.writeHead(200, {
+                  'Content-Type': 'application/json',
+                  'Access-Control-Allow-Origin': '*'
+              });
+              
+              const response = {
+                  service: 'SecureBank Application Tier',
+                  status: 'active',
+                  timestamp: new Date().toISOString(),
+                  hostname: require('os').hostname(),
+                  environment: 'production',
+                  tier: 'application',
+                  port: 8080,
+                  security: {
+                      vpc: '${SecureBankVPC}',
+                      subnet: '${PrivateSubnet}',
+                      securityGroup: 'Application Tier',
+                      internetAccess: 'via NAT Gateway'
+                  },
+                  services: [
+                      'Loan Processing API',
+                      'Account Management API',
+                      'Transaction Processing API',
+                      'Risk Assessment API'
+                  ]
+              };
+              
+              res.end(JSON.stringify(response, null, 2));
+          });
+          
+          server.listen(8080, () => {
+              console.log('SecureBank Application Server running on port 8080');
+          });
+          EOF
+          
+          # Start the application server
+          cd /opt/securebank-app
+          node server.js &
+          
+          # Create systemd service for auto-start
+          cat > /etc/systemd/system/securebank-app.service << 'EOF'
+          [Unit]
+          Description=SecureBank Application Server
+          After=network.target
+          
+          [Service]
+          Type=simple
+          User=ec2-user
+          WorkingDirectory=/opt/securebank-app
+          ExecStart=/usr/bin/node server.js
+          Restart=always
+          
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+          
+          systemctl enable securebank-app
+          systemctl start securebank-app
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-AppServer'
+        - Key: Tier
+          Value: Application
+
+  # Bastion Host Instance
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0c02fb55956c7d316  # Amazon Linux 2 AMI
+      InstanceType: t3.micro
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref BastionSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y htop nmap telnet nc
+          
+          # Create connection test scripts
+          cat > /home/ec2-user/test-connectivity.sh << 'EOF'
+          #!/bin/bash
+          echo "=== SecureBank Connectivity Tests ==="
+          echo "Testing Application Server connectivity..."
+          
+          APP_SERVER_IP="${AppServerInstance.PrivateIp}"
+          
+          echo "1. Ping test to App Server:"
+          ping -c 3 $APP_SERVER_IP
+          
+          echo "2. Port 8080 connectivity test:"
+          nc -zv $APP_SERVER_IP 8080
+          
+          echo "3. HTTP API test:"
+          curl -s http://$APP_SERVER_IP:8080 | head -20
+          
+          echo "=== Tests Complete ==="
+          EOF
+          
+          chmod +x /home/ec2-user/test-connectivity.sh
+          chown ec2-user:ec2-user /home/ec2-user/test-connectivity.sh
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-BastionHost'
+        - Key: Purpose
+          Value: SSH-Gateway
+
+Outputs:
+  VPCId:
+    Description: VPC ID
+    Value: !Ref SecureBankVPC
+    Export:
+      Name: !Sub '${EnvironmentName}-VPC'
+
+  WebServerPublicIP:
+    Description: Web Server Public IP Address
+    Value: !GetAtt WebServerInstance.PublicIp
+
+  WebServerPrivateIP:
+    Description: Web Server Private IP Address
+    Value: !GetAtt WebServerInstance.PrivateIp
+
+  AppServerPrivateIP:
+    Description: Application Server Private IP Address
+    Value: !GetAtt AppServerInstance.PrivateIp
+
+  BastionPublicIP:
+    Description: Bastion Host Public IP Address
+    Value: !GetAtt BastionInstance.PublicIp
+
+  WebApplicationURL:
+    Description: Web Application URL
+    Value: !Sub 'http://${WebServerInstance.PublicIp}'
+
+  ApplicationAPIURL:
+    Description: Application API URL (accessible from web tier)
+    Value: !Sub 'http://${AppServerInstance.PrivateIp}:8080'
+
+  SecurityTestCommands:
+    Description: Commands to test security configuration
+    Value: !Sub |
+      # Test web server from internet:
+      curl http://${WebServerInstance.PublicIp}
+      
+      # SSH to bastion host:
+      ssh -i ${KeyPairName}.pem ec2-user@${BastionInstance.PublicIp}
+      
+      # From bastion, test app server connectivity:
+      ./test-connectivity.sh
+      
+      # SSH to app server via bastion:
+      ssh -i ${KeyPairName}.pem ec2-user@${AppServerInstance.PrivateIp}
+
+  S3BucketName:
+    Description: S3 Bucket for application data
+    Value: !Ref SecureBankS3Bucket
