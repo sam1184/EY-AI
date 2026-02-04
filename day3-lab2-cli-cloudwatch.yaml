@@ -1,0 +1,659 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'SecureBank Day 3 Lab 2: AWS CLI & CloudWatch Monitoring Setup'
+
+Parameters:
+  EnvironmentName:
+    Description: Environment name prefix for resources
+    Type: String
+    Default: SecureBank-Day3-Lab2
+  
+  KeyPairName:
+    Description: EC2 Key Pair for SSH access (must exist in your AWS account)
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair
+  
+  AlertEmail:
+    Description: Email address for CloudWatch alerts
+    Type: String
+    Default: admin@securebank.com
+
+Resources:
+  # SNS Topic for alerts
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${EnvironmentName}-Alerts'
+      DisplayName: SecureBank CloudWatch Alerts
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlertEmail
+
+  # CloudWatch Log Groups
+  ApplicationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/securebank/${EnvironmentName}/application'
+      RetentionInDays: 30
+
+  SystemLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/securebank/${EnvironmentName}/system'
+      RetentionInDays: 30
+
+  SecurityLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/securebank/${EnvironmentName}/security'
+      RetentionInDays: 90
+
+  # IAM Role for CloudWatch and CLI operations
+  CloudWatchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-CloudWatch-Role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+                - ec2.amazonaws.com
+                - lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/CloudWatchFullAccess
+        - arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess
+      Policies:
+        - PolicyName: SecureBankCLIPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:*
+                  - logs:*
+                  - sns:Publish
+                  - ec2:Describe*
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource: '*'
+
+  CloudWatchInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref CloudWatchRole
+
+  # VPC for the lab
+  SecureBankVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.5.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-VPC'
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-IGW'
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref SecureBankVPC
+
+  # Public Subnet
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.5.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-Public-Subnet'
+
+  # Route Table
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SecureBankVPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-Public-Routes'
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  # Security Group
+  CLIInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for CLI and monitoring instance
+      VpcId: !Ref SecureBankVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH access
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP for monitoring dashboard
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+          Description: Grafana dashboard
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-CLI-SG'
+
+  # EC2 Instance for CLI and CloudWatch operations
+  CLIInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0c02fb55956c7d316  # Amazon Linux 2 AMI
+      InstanceType: t3.medium
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref CLIInstanceSecurityGroup
+      IamInstanceProfile: !Ref CloudWatchInstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y awscli python3 pip3 nodejs npm docker htop
+          
+          # Install latest AWS CLI v2
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          ./aws/install
+          
+          # Install CloudWatch agent
+          wget https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
+          rpm -U ./amazon-cloudwatch-agent.rpm
+          
+          # Create comprehensive CloudWatch agent config
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'EOF'
+          {
+            "agent": {
+              "metrics_collection_interval": 60,
+              "run_as_user": "cwagent"
+            },
+            "metrics": {
+              "namespace": "SecureBank/Banking",
+              "metrics_collected": {
+                "cpu": {
+                  "measurement": [
+                    "cpu_usage_idle",
+                    "cpu_usage_iowait",
+                    "cpu_usage_user",
+                    "cpu_usage_system"
+                  ],
+                  "metrics_collection_interval": 60,
+                  "totalcpu": false
+                },
+                "disk": {
+                  "measurement": [
+                    "used_percent"
+                  ],
+                  "metrics_collection_interval": 60,
+                  "resources": [
+                    "*"
+                  ]
+                },
+                "diskio": {
+                  "measurement": [
+                    "io_time",
+                    "read_bytes",
+                    "write_bytes",
+                    "reads",
+                    "writes"
+                  ],
+                  "metrics_collection_interval": 60,
+                  "resources": [
+                    "*"
+                  ]
+                },
+                "mem": {
+                  "measurement": [
+                    "mem_used_percent"
+                  ],
+                  "metrics_collection_interval": 60
+                },
+                "netstat": {
+                  "measurement": [
+                    "tcp_established",
+                    "tcp_time_wait"
+                  ],
+                  "metrics_collection_interval": 60
+                },
+                "swap": {
+                  "measurement": [
+                    "swap_used_percent"
+                  ],
+                  "metrics_collection_interval": 60
+                }
+              }
+            },
+            "logs": {
+              "logs_collected": {
+                "files": {
+                  "collect_list": [
+                    {
+                      "file_path": "/var/log/messages",
+                      "log_group_name": "${SystemLogGroup}",
+                      "log_stream_name": "{instance_id}-system"
+                    },
+                    {
+                      "file_path": "/var/log/secure",
+                      "log_group_name": "${SecurityLogGroup}",
+                      "log_stream_name": "{instance_id}-security"
+                    },
+                    {
+                      "file_path": "/var/log/banking-app.log",
+                      "log_group_name": "${ApplicationLogGroup}",
+                      "log_stream_name": "{instance_id}-application"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+          EOF
+          
+          # Start CloudWatch agent
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+            -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+          
+          # Create AWS CLI practice scripts
+          mkdir -p /home/ec2-user/aws-cli-scripts
+          
+          # Script 1: Basic AWS CLI operations
+          cat > /home/ec2-user/aws-cli-scripts/basic-operations.sh << 'EOF'
+          #!/bin/bash
+          echo "=== SecureBank AWS CLI Operations ==="
+          echo "Current AWS Identity:"
+          aws sts get-caller-identity
+          echo ""
+          
+          echo "=== EC2 Instances ==="
+          aws ec2 describe-instances --query 'Reservations[*].Instances[*].[InstanceId,State.Name,InstanceType,PublicIpAddress]' --output table
+          echo ""
+          
+          echo "=== VPC Information ==="
+          aws ec2 describe-vpcs --query 'Vpcs[*].[VpcId,CidrBlock,State]' --output table
+          echo ""
+          
+          echo "=== Security Groups ==="
+          aws ec2 describe-security-groups --query 'SecurityGroups[*].[GroupId,GroupName,Description]' --output table
+          echo ""
+          
+          echo "=== CloudWatch Log Groups ==="
+          aws logs describe-log-groups --query 'logGroups[*].[logGroupName,retentionInDays]' --output table
+          EOF
+          
+          # Script 2: CloudWatch operations
+          cat > /home/ec2-user/aws-cli-scripts/cloudwatch-operations.sh << 'EOF'
+          #!/bin/bash
+          echo "=== SecureBank CloudWatch Operations ==="
+          
+          INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+          
+          echo "Instance ID: $INSTANCE_ID"
+          echo ""
+          
+          echo "=== Custom Metric - Banking Transactions ==="
+          aws cloudwatch put-metric-data \
+            --namespace "SecureBank/Banking" \
+            --metric-data MetricName=TransactionCount,Value=$((RANDOM % 1000 + 100)),Unit=Count,Dimensions=Environment=${EnvironmentName}
+          
+          aws cloudwatch put-metric-data \
+            --namespace "SecureBank/Banking" \
+            --metric-data MetricName=TransactionAmount,Value=$((RANDOM % 50000 + 10000)),Unit=None,Dimensions=Environment=${EnvironmentName}
+          
+          echo "Custom metrics published!"
+          echo ""
+          
+          echo "=== Recent CloudWatch Metrics ==="
+          aws cloudwatch list-metrics --namespace "SecureBank/Banking" --output table
+          echo ""
+          
+          echo "=== CloudWatch Alarms ==="
+          aws cloudwatch describe-alarms --query 'MetricAlarms[*].[AlarmName,StateValue,MetricName]' --output table
+          EOF
+          
+          # Script 3: Log operations
+          cat > /home/ec2-user/aws-cli-scripts/log-operations.sh << 'EOF'
+          #!/bin/bash
+          echo "=== SecureBank Log Operations ==="
+          
+          # Create sample application log
+          echo "$(date): Banking application started - Transaction processing enabled" >> /var/log/banking-app.log
+          echo "$(date): User authentication successful - UserID: user123" >> /var/log/banking-app.log
+          echo "$(date): Transaction processed - Amount: $2500, Account: ****1234" >> /var/log/banking-app.log
+          echo "$(date): Security check passed - IP: 192.168.1.100" >> /var/log/banking-app.log
+          
+          echo "Sample logs created!"
+          echo ""
+          
+          echo "=== Log Groups ==="
+          aws logs describe-log-groups --query 'logGroups[?contains(logGroupName, `securebank`)].[logGroupName,storedBytes]' --output table
+          echo ""
+          
+          echo "=== Recent Log Events ==="
+          LOG_GROUP="${ApplicationLogGroup}"
+          LOG_STREAM=$(aws logs describe-log-streams --log-group-name $LOG_GROUP --order-by LastEventTime --descending --max-items 1 --query 'logStreams[0].logStreamName' --output text)
+          
+          if [ "$LOG_STREAM" != "None" ]; then
+            echo "Latest events from $LOG_STREAM:"
+            aws logs get-log-events --log-group-name $LOG_GROUP --log-stream-name $LOG_STREAM --limit 10 --query 'events[*].message' --output text
+          fi
+          EOF
+          
+          # Script 4: Monitoring dashboard creation
+          cat > /home/ec2-user/aws-cli-scripts/create-dashboard.sh << 'EOF'
+          #!/bin/bash
+          echo "=== Creating SecureBank CloudWatch Dashboard ==="
+          
+          INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+          
+          cat > /tmp/dashboard.json << DASHBOARD_EOF
+          {
+            "widgets": [
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 0,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "metrics": [
+                    [ "AWS/EC2", "CPUUtilization", "InstanceId", "$INSTANCE_ID" ],
+                    [ "SecureBank/Banking", "cpu_usage_user", "InstanceId", "$INSTANCE_ID" ]
+                  ],
+                  "period": 300,
+                  "stat": "Average",
+                  "region": "${AWS::Region}",
+                  "title": "SecureBank - CPU Utilization"
+                }
+              },
+              {
+                "type": "metric",
+                "x": 12,
+                "y": 0,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "metrics": [
+                    [ "SecureBank/Banking", "TransactionCount", "Environment", "${EnvironmentName}" ],
+                    [ ".", "TransactionAmount", ".", "." ]
+                  ],
+                  "period": 300,
+                  "stat": "Sum",
+                  "region": "${AWS::Region}",
+                  "title": "SecureBank - Banking Metrics"
+                }
+              },
+              {
+                "type": "log",
+                "x": 0,
+                "y": 6,
+                "width": 24,
+                "height": 6,
+                "properties": {
+                  "query": "SOURCE '${ApplicationLogGroup}' | fields @timestamp, @message\n| sort @timestamp desc\n| limit 20",
+                  "region": "${AWS::Region}",
+                  "title": "SecureBank - Application Logs"
+                }
+              }
+            ]
+          }
+          DASHBOARD_EOF
+          
+          aws cloudwatch put-dashboard \
+            --dashboard-name "SecureBank-${EnvironmentName}" \
+            --dashboard-body file:///tmp/dashboard.json
+          
+          echo "Dashboard created: SecureBank-${EnvironmentName}"
+          echo "View at: https://console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=SecureBank-${EnvironmentName}"
+          EOF
+          
+          # Make scripts executable
+          chmod +x /home/ec2-user/aws-cli-scripts/*.sh
+          chown -R ec2-user:ec2-user /home/ec2-user/aws-cli-scripts
+          
+          # Create a simple web dashboard
+          yum install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+          
+          cat > /var/www/html/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>SecureBank - CLI & CloudWatch Lab</title>
+              <style>
+                  body { font-family: Arial, sans-serif; margin: 20px; background: #f0f8ff; }
+                  .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+                  .header { color: #1e3a8a; border-bottom: 3px solid #3b82f6; padding-bottom: 15px; margin-bottom: 20px; }
+                  .command-section { background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #10b981; }
+                  .command { background: #1f2937; color: #f9fafb; padding: 10px; border-radius: 4px; font-family: monospace; margin: 10px 0; }
+                  .alert { background: #fef2f2; border: 1px solid #fecaca; padding: 15px; border-radius: 6px; margin: 15px 0; }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <h1 class="header">🏦 SecureBank - AWS CLI & CloudWatch Lab</h1>
+                  
+                  <div class="alert">
+                      <h3>🎯 Lab Objectives</h3>
+                      <ul>
+                          <li>Master AWS CLI commands for banking operations</li>
+                          <li>Configure CloudWatch monitoring and alerting</li>
+                          <li>Create custom metrics and dashboards</li>
+                          <li>Implement log aggregation and analysis</li>
+                      </ul>
+                  </div>
+                  
+                  <div class="command-section">
+                      <h3>🖥️ AWS CLI Practice Commands</h3>
+                      <p><strong>Basic Operations:</strong></p>
+                      <div class="command">cd ~/aws-cli-scripts && ./basic-operations.sh</div>
+                      
+                      <p><strong>CloudWatch Operations:</strong></p>
+                      <div class="command">./cloudwatch-operations.sh</div>
+                      
+                      <p><strong>Log Operations:</strong></p>
+                      <div class="command">./log-operations.sh</div>
+                      
+                      <p><strong>Create Dashboard:</strong></p>
+                      <div class="command">./create-dashboard.sh</div>
+                  </div>
+                  
+                  <div class="command-section">
+                      <h3>📊 CloudWatch Commands</h3>
+                      <p><strong>List Metrics:</strong></p>
+                      <div class="command">aws cloudwatch list-metrics --namespace "SecureBank/Banking"</div>
+                      
+                      <p><strong>Get Metric Statistics:</strong></p>
+                      <div class="command">aws cloudwatch get-metric-statistics --namespace AWS/EC2 --metric-name CPUUtilization --dimensions Name=InstanceId,Value=$(curl -s http://169.254.169.254/latest/meta-data/instance-id) --start-time $(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%S) --end-time $(date -u +%Y-%m-%dT%H:%M:%S) --period 300 --statistics Average</div>
+                      
+                      <p><strong>Create Alarm:</strong></p>
+                      <div class="command">aws cloudwatch put-metric-alarm --alarm-name "SecureBank-HighCPU" --alarm-description "High CPU usage alert" --metric-name CPUUtilization --namespace AWS/EC2 --statistic Average --period 300 --threshold 80 --comparison-operator GreaterThanThreshold --evaluation-periods 2</div>
+                  </div>
+                  
+                  <div class="command-section">
+                      <h3>📝 Log Commands</h3>
+                      <p><strong>Create Log Stream:</strong></p>
+                      <div class="command">aws logs create-log-stream --log-group-name "${ApplicationLogGroup}" --log-stream-name "manual-test-stream"</div>
+                      
+                      <p><strong>Put Log Events:</strong></p>
+                      <div class="command">aws logs put-log-events --log-group-name "${ApplicationLogGroup}" --log-stream-name "manual-test-stream" --log-events timestamp=$(date +%s000),message="Test banking transaction completed"</div>
+                      
+                      <p><strong>Query Logs:</strong></p>
+                      <div class="command">aws logs start-query --log-group-name "${ApplicationLogGroup}" --start-time $(date -d '1 hour ago' +%s) --end-time $(date +%s) --query-string 'fields @timestamp, @message | sort @timestamp desc | limit 20'</div>
+                  </div>
+              </div>
+          </body>
+          </html>
+          EOF
+          
+          # Create cron job for continuous metrics
+          cat > /home/ec2-user/publish-metrics.sh << 'EOF'
+          #!/bin/bash
+          # Publish banking metrics every minute
+          aws cloudwatch put-metric-data \
+            --namespace "SecureBank/Banking" \
+            --metric-data MetricName=ActiveUsers,Value=$((RANDOM % 500 + 100)),Unit=Count,Dimensions=Environment=${EnvironmentName}
+          
+          aws cloudwatch put-metric-data \
+            --namespace "SecureBank/Banking" \
+            --metric-data MetricName=TransactionVolume,Value=$((RANDOM % 1000000 + 100000)),Unit=None,Dimensions=Environment=${EnvironmentName}
+          EOF
+          
+          chmod +x /home/ec2-user/publish-metrics.sh
+          chown ec2-user:ec2-user /home/ec2-user/publish-metrics.sh
+          
+          # Add to crontab
+          echo "* * * * * /home/ec2-user/publish-metrics.sh" | crontab -u ec2-user -
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-CLI-Instance'
+        - Key: Purpose
+          Value: CLI-CloudWatch-Lab
+
+  # CloudWatch Alarms
+  HighCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${EnvironmentName}-HighCPU'
+      AlarmDescription: High CPU utilization on CLI instance
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref CLIInstance
+      AlarmActions:
+        - !Ref AlertTopic
+
+  LowDiskSpaceAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${EnvironmentName}-LowDiskSpace'
+      AlarmDescription: Low disk space on CLI instance
+      MetricName: used_percent
+      Namespace: SecureBank/Banking
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 85
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref CLIInstance
+        - Name: device
+          Value: /dev/xvda1
+        - Name: fstype
+          Value: xfs
+        - Name: path
+          Value: /
+      AlarmActions:
+        - !Ref AlertTopic
+
+  # Custom Banking Metrics Alarm
+  HighTransactionVolumeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${EnvironmentName}-HighTransactionVolume'
+      AlarmDescription: High transaction volume detected
+      MetricName: TransactionVolume
+      Namespace: SecureBank/Banking
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5000000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: Environment
+          Value: !Ref EnvironmentName
+      AlarmActions:
+        - !Ref AlertTopic
+
+Outputs:
+  CLIInstancePublicIP:
+    Description: CLI Instance Public IP Address
+    Value: !GetAtt CLIInstance.PublicIp
+
+  DashboardURL:
+    Description: CloudWatch Dashboard URL
+    Value: !Sub 'https://console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=SecureBank-${EnvironmentName}'
+
+  WebDashboardURL:
+    Description: Web-based lab dashboard
+    Value: !Sub 'http://${CLIInstance.PublicIp}'
+
+  ApplicationLogGroup:
+    Description: Application Log Group Name
+    Value: !Ref ApplicationLogGroup
+
+  SystemLogGroup:
+    Description: System Log Group Name
+    Value: !Ref SystemLogGroup
+
+  SecurityLogGroup:
+    Description: Security Log Group Name
+    Value: !Ref SecurityLogGroup
+
+  AlertTopicArn:
+    Description: SNS Topic ARN for alerts
+    Value: !Ref AlertTopic
+
+  CLICommands:
+    Description: Key AWS CLI commands to practice
+    Value: !Sub |
+      # SSH to CLI instance:
+      ssh -i securebank-keypair.pem ec2-user@${CLIInstance.PublicIp}
+      
+      # Run practice scripts:
+      cd ~/aws-cli-scripts
+      ./basic-operations.sh
+      ./cloudwatch-operations.sh
+      ./log-operations.sh
+      ./create-dashboard.sh
+      
+      # Manual CLI commands:
+      aws cloudwatch list-metrics --namespace "SecureBank/Banking"
+      aws logs describe-log-groups
+      aws cloudwatch describe-alarms
