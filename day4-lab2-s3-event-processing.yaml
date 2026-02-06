@@ -1,0 +1,450 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Day 4 Lab 2: S3 Event Processing for SecureBank Document Processing'
+
+Parameters:
+  EnvironmentName:
+    Description: Environment name prefix
+    Type: String
+    Default: SecureBank-Day4-Lab2
+
+Resources:
+  # S3 Bucket for Banking Documents
+  BankingDocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-banking-documents-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldDocuments
+            Status: Enabled
+            ExpirationInDays: 2555  # 7 years for banking compliance
+          - Id: TransitionToIA
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 30
+                StorageClass: STANDARD_IA
+          - Id: TransitionToGlacier
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 365
+                StorageClass: GLACIER
+
+  # DynamoDB Table for Document Metadata
+  DocumentMetadataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${EnvironmentName}-document-metadata'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: document_id
+          AttributeType: S
+        - AttributeName: customer_id
+          AttributeType: S
+        - AttributeName: upload_timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: document_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: customer-index
+          KeySchema:
+            - AttributeName: customer_id
+              KeyType: HASH
+            - AttributeName: upload_timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  # SNS Topic for Document Processing Notifications
+  DocumentProcessingTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${EnvironmentName}-document-processing'
+      DisplayName: 'SecureBank Document Processing Notifications'
+
+  # IAM Role for Document Processing Lambda
+  DocumentProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-DocumentProcessor-Role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DocumentProcessingPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub 'arn:aws:s3:::${AWS::StackName}-banking-documents-${AWS::AccountId}/*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                Resource: 
+                  - !GetAtt DocumentMetadataTable.Arn
+                  - !Sub '${DocumentMetadataTable.Arn}/index/*'
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref DocumentProcessingTopic
+
+  # CloudWatch Log Group for Document Processor
+  DocumentProcessorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${EnvironmentName}-document-processor'
+      RetentionInDays: 14
+
+  # Document Processing Lambda Function
+  DocumentProcessorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${EnvironmentName}-document-processor'
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt DocumentProcessorRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          DOCUMENT_TABLE: !Ref DocumentMetadataTable
+          NOTIFICATION_TOPIC: !Ref DocumentProcessingTopic
+          ENVIRONMENT: !Ref EnvironmentName
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import logging
+          import os
+          from urllib.parse import unquote_plus
+          from datetime import datetime
+          
+          # Configure logging
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          
+          # Initialize AWS clients
+          s3_client = boto3.client('s3')
+          dynamodb = boto3.resource('dynamodb')
+          sns_client = boto3.client('sns')
+          
+          # Configuration
+          DOCUMENT_TABLE = os.environ['DOCUMENT_TABLE']
+          NOTIFICATION_TOPIC = os.environ['NOTIFICATION_TOPIC']
+          
+          def lambda_handler(event, context):
+              """
+              Process S3 events for SecureBank document uploads
+              """
+              
+              try:
+                  # Process each record in the event
+                  for record in event['Records']:
+                      # Extract S3 event information
+                      bucket_name = record['s3']['bucket']['name']
+                      object_key = unquote_plus(record['s3']['object']['key'])
+                      event_name = record['eventName']
+                      
+                      logger.info(f"Processing {event_name} for {object_key} in {bucket_name}")
+                      
+                      # Get object metadata
+                      try:
+                          response = s3_client.head_object(Bucket=bucket_name, Key=object_key)
+                          file_size = response['ContentLength']
+                          last_modified = response['LastModified']
+                          content_type = response.get('ContentType', 'unknown')
+                          
+                          # Extract custom metadata
+                          metadata = response.get('Metadata', {})
+                          document_type = metadata.get('document-type', 'unknown')
+                          customer_id = metadata.get('customer-id', 'unknown')
+                          
+                      except Exception as e:
+                          logger.error(f"Error getting object metadata: {str(e)}")
+                          continue
+                      
+                      # Process document
+                      processing_result = process_document(
+                          bucket_name, object_key, document_type, 
+                          file_size, content_type, customer_id
+                      )
+                      
+                      # Store document information in DynamoDB
+                      store_document_info(
+                          object_key, bucket_name, document_type, 
+                          customer_id, file_size, content_type, processing_result
+                      )
+                      
+                      # Send notification
+                      send_notification(object_key, document_type, customer_id, processing_result)
+                      
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps({
+                          'message': f'Successfully processed {len(event["Records"])} documents',
+                          'timestamp': datetime.utcnow().isoformat()
+                      })
+                  }
+                  
+              except Exception as e:
+                  logger.error(f"Error processing S3 event: {str(e)}")
+                  raise
+          
+          def process_document(bucket_name, object_key, document_type, file_size, content_type, customer_id):
+              """
+              Process document based on type and extract relevant information
+              """
+              
+              processing_result = {
+                  'status': 'PROCESSED',
+                  'extracted_data': {},
+                  'validation_errors': [],
+                  'processing_time': datetime.utcnow().isoformat()
+              }
+              
+              try:
+                  # Validate file size (max 10MB for banking documents)
+                  if file_size > 10 * 1024 * 1024:
+                      processing_result['validation_errors'].append('File size exceeds 10MB limit')
+                      processing_result['status'] = 'REJECTED'
+                      return processing_result
+                  
+                  # Validate content type
+                  allowed_types = ['application/pdf', 'image/jpeg', 'image/png', 'text/csv']
+                  if content_type not in allowed_types:
+                      processing_result['validation_errors'].append(f'Unsupported file type: {content_type}')
+                      processing_result['status'] = 'REJECTED'
+                      return processing_result
+                  
+                  # Log successful processing
+                  logger.info(f"Document processed successfully: {object_key}")
+                  processing_result['extracted_data'] = {
+                      'file_name': object_key.split('/')[-1],
+                      'file_size': file_size,
+                      'content_type': content_type,
+                      'document_type': document_type
+                  }
+                  
+              except Exception as e:
+                  logger.error(f"Error processing document {object_key}: {str(e)}")
+                  processing_result['status'] = 'ERROR'
+                  processing_result['validation_errors'].append(str(e))
+              
+              return processing_result
+          
+          def store_document_info(object_key, bucket_name, document_type, customer_id, 
+                                 file_size, content_type, processing_result):
+              """
+              Store document information in DynamoDB
+              """
+              try:
+                  table = dynamodb.Table(DOCUMENT_TABLE)
+                  
+                  item = {
+                      'document_id': object_key,
+                      'bucket_name': bucket_name,
+                      'document_type': document_type,
+                      'customer_id': customer_id,
+                      'file_size': file_size,
+                      'content_type': content_type,
+                      'upload_timestamp': datetime.utcnow().isoformat(),
+                      'processing_status': processing_result['status'],
+                      'extracted_data': processing_result['extracted_data'],
+                      'validation_errors': processing_result['validation_errors']
+                  }
+                  
+                  table.put_item(Item=item)
+                  logger.info(f"Document info stored in DynamoDB: {object_key}")
+                  
+              except Exception as e:
+                  logger.error(f"Error storing document info: {str(e)}")
+                  raise
+          
+          def send_notification(object_key, document_type, customer_id, processing_result):
+              """
+              Send notification about document processing
+              """
+              try:
+                  message = {
+                      'document_id': object_key,
+                      'document_type': document_type,
+                      'customer_id': customer_id,
+                      'processing_status': processing_result['status'],
+                      'timestamp': datetime.utcnow().isoformat()
+                  }
+                  
+                  sns_client.publish(
+                      TopicArn=NOTIFICATION_TOPIC,
+                      Message=json.dumps(message),
+                      Subject=f'Document Processing: {processing_result["status"]}'
+                  )
+                  
+                  logger.info(f"Notification sent for document: {object_key}")
+                  
+              except Exception as e:
+                  logger.error(f"Error sending notification: {str(e)}")
+
+  # Lambda Permission for S3 to invoke the function
+  S3InvokeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DocumentProcessorLambda
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub 'arn:aws:s3:::${AWS::StackName}-banking-documents-${AWS::AccountId}'
+
+  # IAM Role for Custom Resource Lambda
+  CustomResourceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3NotificationPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutBucketNotification
+                  - s3:GetBucketNotification
+                Resource: !Sub 'arn:aws:s3:::${AWS::StackName}-banking-documents-${AWS::AccountId}'
+
+  # Custom Resource Lambda to Configure S3 Notifications
+  S3NotificationConfigLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${EnvironmentName}-s3-notification-config'
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt CustomResourceRole.Arn
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+          
+          s3_client = boto3.client('s3')
+          
+          def lambda_handler(event, context):
+              try:
+                  bucket_name = event['ResourceProperties']['BucketName']
+                  lambda_arn = event['ResourceProperties']['LambdaArn']
+                  
+                  if event['RequestType'] == 'Delete':
+                      # Remove notification configuration
+                      s3_client.put_bucket_notification_configuration(
+                          Bucket=bucket_name,
+                          NotificationConfiguration={}
+                      )
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                      return
+                  
+                  # Create or Update notification configuration
+                  notification_config = {
+                      'LambdaFunctionConfigurations': [
+                          {
+                              'LambdaFunctionArn': lambda_arn,
+                              'Events': ['s3:ObjectCreated:*'],
+                              'Filter': {
+                                  'Key': {
+                                      'FilterRules': [
+                                          {
+                                              'Name': 'prefix',
+                                              'Value': 'documents/'
+                                          }
+                                      ]
+                                  }
+                              }
+                          }
+                      ]
+                  }
+                  
+                  s3_client.put_bucket_notification_configuration(
+                      Bucket=bucket_name,
+                      NotificationConfiguration=notification_config
+                  )
+                  
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                      'Message': 'S3 notification configured successfully'
+                  })
+                  
+              except Exception as e:
+                  print(f"Error: {str(e)}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {
+                      'Message': str(e)
+                  })
+
+  # Custom Resource to Configure S3 Bucket Notifications
+  S3BucketNotificationConfig:
+    Type: Custom::S3BucketNotification
+    DependsOn:
+      - S3InvokeLambdaPermission
+    Properties:
+      ServiceToken: !GetAtt S3NotificationConfigLambda.Arn
+      BucketName: !Ref BankingDocumentsBucket
+      LambdaArn: !GetAtt DocumentProcessorLambda.Arn
+
+Outputs:
+  BucketName:
+    Description: 'Name of the S3 bucket for banking documents'
+    Value: !Ref BankingDocumentsBucket
+    Export:
+      Name: !Sub '${EnvironmentName}-BucketName'
+
+  DocumentProcessorLambdaArn:
+    Description: 'ARN of the document processor Lambda function'
+    Value: !GetAtt DocumentProcessorLambda.Arn
+    Export:
+      Name: !Sub '${EnvironmentName}-DocumentProcessorArn'
+
+  DynamoDBTableName:
+    Description: 'Name of the DynamoDB table for document metadata'
+    Value: !Ref DocumentMetadataTable
+    Export:
+      Name: !Sub '${EnvironmentName}-DocumentTable'
+
+  SNSTopicArn:
+    Description: 'ARN of the SNS topic for notifications'
+    Value: !Ref DocumentProcessingTopic
+    Export:
+      Name: !Sub '${EnvironmentName}-SNSTopicArn'
+
+  TestUploadCommand:
+    Description: 'Command to test document upload'
+    Value: !Sub |
+      echo "Test document content" > test-document.pdf
+      aws s3 cp test-document.pdf s3://${BankingDocumentsBucket}/documents/loans/ --metadata document-type=loan-application,customer-id=CUST123456

@@ -1,0 +1,174 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Day 4 Lab 1: Hello World Lambda Function for SecureBank'
+
+Parameters:
+  EnvironmentName:
+    Description: Environment name prefix
+    Type: String
+    Default: SecureBank-Day4-Lab1
+
+Resources:
+  # IAM Role for Lambda Execution
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-Lambda-ExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BankingLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*'
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: '*'
+
+  # CloudWatch Log Group
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${EnvironmentName}-hello-world'
+      RetentionInDays: 14
+
+  # Hello World Lambda Function
+  HelloWorldLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${EnvironmentName}-hello-world'
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref EnvironmentName
+          LOG_LEVEL: INFO
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import os
+          from datetime import datetime
+          
+          # Configure logging
+          logger = logging.getLogger()
+          logger.setLevel(os.environ.get('LOG_LEVEL', 'INFO'))
+          
+          def lambda_handler(event, context):
+              """
+              SecureBank Hello World Lambda Function
+              Processes banking events and returns structured response
+              """
+              
+              # Log the incoming event
+              logger.info(f"Received event: {json.dumps(event)}")
+              
+              # Extract event information
+              event_source = event.get('source', 'unknown')
+              timestamp = datetime.utcnow().isoformat()
+              
+              # Banking-specific processing
+              if event_source == 'banking.loan.application':
+                  message = "Loan application received and queued for processing"
+                  status = "RECEIVED"
+              elif event_source == 'banking.transaction':
+                  message = "Transaction processed successfully"
+                  status = "PROCESSED"
+              else:
+                  message = "Hello from SecureBank Lambda!"
+                  status = "SUCCESS"
+              
+              # Prepare response
+              response = {
+                  'statusCode': 200,
+                  'headers': {
+                      'Content-Type': 'application/json',
+                      'X-Banking-Service': 'SecureBank-Lambda'
+                  },
+                  'body': json.dumps({
+                      'message': message,
+                      'status': status,
+                      'timestamp': timestamp,
+                      'requestId': context.aws_request_id,
+                      'functionName': context.function_name,
+                      'remainingTime': context.get_remaining_time_in_millis(),
+                      'environment': os.environ.get('ENVIRONMENT', 'unknown')
+                  })
+              }
+              
+              logger.info(f"Returning response: {response}")
+              return response
+
+  # CloudWatch Alarm for Lambda Errors
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${EnvironmentName}-Lambda-Errors'
+      AlarmDescription: 'Alarm for Lambda function errors'
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref HelloWorldLambda
+
+  # CloudWatch Alarm for Lambda Duration
+  LambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${EnvironmentName}-Lambda-Duration'
+      AlarmDescription: 'Alarm for Lambda function duration'
+      MetricName: Duration
+      Namespace: AWS/Lambda
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 10000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref HelloWorldLambda
+
+Outputs:
+  LambdaFunctionName:
+    Description: 'Name of the Hello World Lambda function'
+    Value: !Ref HelloWorldLambda
+    Export:
+      Name: !Sub '${EnvironmentName}-HelloWorldLambda'
+
+  LambdaFunctionArn:
+    Description: 'ARN of the Hello World Lambda function'
+    Value: !GetAtt HelloWorldLambda.Arn
+    Export:
+      Name: !Sub '${EnvironmentName}-HelloWorldLambdaArn'
+
+  LambdaExecutionRoleArn:
+    Description: 'ARN of the Lambda execution role'
+    Value: !GetAtt LambdaExecutionRole.Arn
+    Export:
+      Name: !Sub '${EnvironmentName}-LambdaExecutionRoleArn'
+
+  TestCommand:
+    Description: 'AWS CLI command to test the Lambda function'
+    Value: !Sub |
+      aws lambda invoke --function-name ${HelloWorldLambda} --payload '{"source": "banking.loan.application", "customer_id": "CUST123456"}' response.json && cat response.json

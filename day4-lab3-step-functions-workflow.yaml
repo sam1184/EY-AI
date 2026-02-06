@@ -1,0 +1,505 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Day 4 Lab 3: Step Functions Workflow for SecureBank Loan Processing'
+
+Parameters:
+  EnvironmentName:
+    Description: Environment name prefix
+    Type: String
+    Default: SecureBank-Day4-Lab3
+
+Resources:
+  # IAM Role for Step Functions
+  StepFunctionsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-StepFunctions-ExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StepFunctionsExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${EnvironmentName}-*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*'
+
+  # IAM Role for Lambda Functions
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-Lambda-WorkflowRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: WorkflowLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub 'arn:aws:s3:::${EnvironmentName}-*/*'
+              - Effect: Allow
+                Action:
+                  - athena:StartQueryExecution
+                  - athena:GetQueryExecution
+                  - athena:GetQueryResults
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - glue:CreateTable
+                  - glue:GetTable
+                  - glue:UpdateTable
+                Resource: '*'
+
+  # Document Validation Lambda
+  ValidateDocumentsLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${EnvironmentName}-validate-documents'
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 60
+      MemorySize: 256
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          from datetime import datetime
+          
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          
+          def lambda_handler(event, context):
+              """
+              Validate loan application documents
+              """
+              
+              try:
+                  application_id = event['application_id']
+                  documents = event.get('documents', [])
+                  customer_id = event['customer_id']
+                  
+                  logger.info(f"Validating documents for application {application_id}")
+                  
+                  validation_result = {
+                      'application_id': application_id,
+                      'status': 'VALID',
+                      'validated_documents': [],
+                      'validation_errors': []
+                  }
+                  
+                  # Validate each document
+                  for doc in documents:
+                      doc_validation = validate_document(doc)
+                      validation_result['validated_documents'].append(doc_validation)
+                      
+                      if not doc_validation['is_valid']:
+                          validation_result['status'] = 'INVALID'
+                          validation_result['validation_errors'].extend(
+                              doc_validation['errors']
+                          )
+                  
+                  # Check for required documents
+                  required_docs = ['identity_proof', 'income_proof', 'address_proof']
+                  provided_doc_types = [doc['type'] for doc in documents]
+                  
+                  for required_doc in required_docs:
+                      if required_doc not in provided_doc_types:
+                          validation_result['status'] = 'INVALID'
+                          validation_result['validation_errors'].append(
+                              f'Missing required document: {required_doc}'
+                          )
+                  
+                  logger.info(f"Validation result: {validation_result['status']}")
+                  
+                  return validation_result
+                  
+              except Exception as e:
+                  logger.error(f"Error validating documents: {str(e)}")
+                  raise
+          
+          def validate_document(document):
+              """
+              Validate individual document
+              """
+              
+              validation = {
+                  'document_id': document['id'],
+                  'type': document['type'],
+                  'is_valid': True,
+                  'errors': []
+              }
+              
+              # Check file size (max 10MB)
+              if document.get('size', 0) > 10 * 1024 * 1024:
+                  validation['is_valid'] = False
+                  validation['errors'].append('File size exceeds 10MB limit')
+              
+              # Check file format
+              allowed_formats = ['pdf', 'jpg', 'jpeg', 'png']
+              file_format = document.get('format', '').lower()
+              if file_format not in allowed_formats:
+                  validation['is_valid'] = False
+                  validation['errors'].append(f'Unsupported format: {file_format}')
+              
+              return validation
+
+  # CSV Processing Lambda
+  ProcessCSVLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${EnvironmentName}-process-csv'
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import logging
+          import csv
+          from io import StringIO
+          
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          
+          # Initialize AWS clients
+          s3_client = boto3.client('s3')
+          athena_client = boto3.client('athena')
+          
+          def lambda_handler(event, context):
+              """
+              Process CSV file and create Athena table
+              """
+              
+              try:
+                  bucket_name = event['bucket_name']
+                  object_key = event['object_key']
+                  
+                  logger.info(f"Processing CSV file: {object_key}")
+                  
+                  # Download and analyze CSV file
+                  csv_analysis = analyze_csv_file(bucket_name, object_key)
+                  
+                  # Generate table name from file path
+                  table_name = generate_table_name(object_key)
+                  
+                  # Create Athena table
+                  query_id = create_athena_table(table_name, csv_analysis, bucket_name, object_key)
+                  
+                  return {
+                      'statusCode': 200,
+                      'table_name': table_name,
+                      'query_execution_id': query_id,
+                      'columns': len(csv_analysis['columns']),
+                      'location': f's3://{bucket_name}/{object_key}'
+                  }
+                  
+              except Exception as e:
+                  logger.error(f"Error processing CSV file: {str(e)}")
+                  raise
+          
+          def analyze_csv_file(bucket_name, object_key):
+              """
+              Analyze CSV file structure and infer column types
+              """
+              
+              try:
+                  # Download CSV file
+                  response = s3_client.get_object(Bucket=bucket_name, Key=object_key)
+                  csv_content = response['Body'].read().decode('utf-8')
+                  
+                  # Parse CSV
+                  csv_reader = csv.reader(StringIO(csv_content))
+                  headers = next(csv_reader)  # First row as headers
+                  
+                  # Sample first few rows to infer data types
+                  sample_rows = []
+                  for i, row in enumerate(csv_reader):
+                      if i >= 10:  # Sample first 10 rows
+                          break
+                      sample_rows.append(row)
+                  
+                  # Infer column types
+                  columns = []
+                  for i, header in enumerate(headers):
+                      column_name = clean_column_name(header)
+                      column_type = infer_column_type([row[i] for row in sample_rows if i < len(row)])
+                      
+                      columns.append({
+                          'name': column_name,
+                          'type': column_type,
+                          'original_name': header
+                      })
+                  
+                  return {
+                      'columns': columns,
+                      'row_count': len(sample_rows),
+                      'has_header': True
+                  }
+                  
+              except Exception as e:
+                  logger.error(f"Error analyzing CSV file: {str(e)}")
+                  raise
+          
+          def clean_column_name(name):
+              """
+              Clean column name for Athena compatibility
+              """
+              # Remove special characters and spaces
+              clean_name = ''.join(c if c.isalnum() else '_' for c in name.lower())
+              
+              # Ensure it starts with a letter
+              if not clean_name[0].isalpha():
+                  clean_name = 'col_' + clean_name
+              
+              return clean_name
+          
+          def infer_column_type(values):
+              """
+              Infer column data type from sample values
+              """
+              
+              # Remove empty values
+              non_empty_values = [v for v in values if v and v.strip()]
+              
+              if not non_empty_values:
+                  return 'string'
+              
+              # Check if all values are integers
+              try:
+                  for value in non_empty_values:
+                      int(value)
+                  return 'bigint'
+              except ValueError:
+                  pass
+              
+              # Check if all values are floats
+              try:
+                  for value in non_empty_values:
+                      float(value)
+                  return 'double'
+              except ValueError:
+                  pass
+              
+              # Default to string
+              return 'string'
+          
+          def generate_table_name(object_key):
+              """
+              Generate Athena table name from S3 object key
+              """
+              
+              # Extract filename without extension
+              filename = object_key.split('/')[-1]
+              table_name = filename.split('.')[0]
+              
+              # Clean table name
+              table_name = ''.join(c if c.isalnum() else '_' for c in table_name.lower())
+              
+              # Add prefix for banking tables
+              return f'securebank_{table_name}'
+          
+          def create_athena_table(table_name, csv_analysis, bucket_name, object_key):
+              """
+              Create Athena table with inferred schema
+              """
+              
+              try:
+                  # Build column definitions
+                  column_definitions = []
+                  for col in csv_analysis['columns']:
+                      column_definitions.append(f"`{col['name']}` {col['type']}")
+                  
+                  columns_sql = ',\n  '.join(column_definitions)
+                  
+                  # Get S3 location (directory containing the file)
+                  s3_location = f"s3://{bucket_name}/{'/'.join(object_key.split('/')[:-1])}/"
+                  
+                  # Create table SQL
+                  create_table_sql = f"""
+                  CREATE EXTERNAL TABLE IF NOT EXISTS `default`.`{table_name}` (
+                    {columns_sql}
+                  )
+                  ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'
+                  WITH SERDEPROPERTIES (
+                    'serialization.format' = ',',
+                    'field.delim' = ','
+                  )
+                  LOCATION '{s3_location}'
+                  TBLPROPERTIES (
+                    'has_encrypted_data'='false',
+                    'skip.header.line.count'='1'
+                  )
+                  """
+                  
+                  # Execute query
+                  query_execution_id = athena_client.start_query_execution(
+                      QueryString=create_table_sql,
+                      ResultConfiguration={
+                          'OutputLocation': f's3://{bucket_name}/athena-results/'
+                      },
+                      WorkGroup='primary'
+                  )['QueryExecutionId']
+                  
+                  logger.info(f"Created Athena table {table_name}, Query ID: {query_execution_id}")
+                  
+                  return query_execution_id
+                  
+              except Exception as e:
+                  logger.error(f"Error creating Athena table: {str(e)}")
+                  raise
+
+  # Step Functions State Machine
+  LoanProcessingStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${EnvironmentName}-LoanProcessing'
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "SecureBank Loan Processing Workflow",
+          "StartAt": "ValidateDocuments",
+          "States": {
+            "ValidateDocuments": {
+              "Type": "Task",
+              "Resource": "${ValidateDocumentsLambda.Arn}",
+              "Parameters": {
+                "application_id.$": "$.application_id",
+                "documents.$": "$.documents",
+                "customer_id.$": "$.customer_id"
+              },
+              "ResultPath": "$.validation_result",
+              "Next": "DocumentsValid?",
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2.0
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "ValidationFailed",
+                  "ResultPath": "$.error"
+                }
+              ]
+            },
+            "DocumentsValid?": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.validation_result.status",
+                  "StringEquals": "VALID",
+                  "Next": "ProcessCSV"
+                },
+                {
+                  "Variable": "$.validation_result.status",
+                  "StringEquals": "INVALID",
+                  "Next": "RejectApplication"
+                }
+              ],
+              "Default": "ValidationFailed"
+            },
+            "ProcessCSV": {
+              "Type": "Task",
+              "Resource": "${ProcessCSVLambda.Arn}",
+              "Parameters": {
+                "bucket_name.$": "$.bucket_name",
+                "object_key.$": "$.csv_file_key"
+              },
+              "ResultPath": "$.csv_result",
+              "Next": "ProcessingComplete",
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2.0
+                }
+              ]
+            },
+            "ProcessingComplete": {
+              "Type": "Pass",
+              "Result": {
+                "status": "SUCCESS",
+                "message": "Loan application processed successfully"
+              },
+              "End": true
+            },
+            "RejectApplication": {
+              "Type": "Pass",
+              "Result": {
+                "status": "REJECTED",
+                "message": "Loan application rejected due to invalid documents"
+              },
+              "End": true
+            },
+            "ValidationFailed": {
+              "Type": "Fail",
+              "Cause": "Document validation failed",
+              "Error": "ValidationError"
+            }
+          }
+        }
+
+Outputs:
+  StateMachineArn:
+    Description: 'ARN of the Step Functions state machine'
+    Value: !Ref LoanProcessingStateMachine
+    Export:
+      Name: !Sub '${EnvironmentName}-StateMachineArn'
+
+  ValidateDocumentsLambdaArn:
+    Description: 'ARN of the document validation Lambda function'
+    Value: !GetAtt ValidateDocumentsLambda.Arn
+    Export:
+      Name: !Sub '${EnvironmentName}-ValidateDocumentsArn'
+
+  ProcessCSVLambdaArn:
+    Description: 'ARN of the CSV processing Lambda function'
+    Value: !GetAtt ProcessCSVLambda.Arn
+    Export:
+      Name: !Sub '${EnvironmentName}-ProcessCSVArn'
+
+  TestExecutionCommand:
+    Description: 'Command to test the Step Functions workflow'
+    Value: !Sub |
+      aws stepfunctions start-execution --state-machine-arn ${LoanProcessingStateMachine} --name test-execution-$(date +%s) --input '{
+        "application_id": "APP-12345",
+        "customer_id": "CUST-67890",
+        "bucket_name": "your-bucket-name",
+        "csv_file_key": "data/sample-data.csv",
+        "documents": [
+          {"id": "doc1", "type": "identity_proof", "format": "pdf", "size": 1024000},
+          {"id": "doc2", "type": "income_proof", "format": "pdf", "size": 2048000},
+          {"id": "doc3", "type": "address_proof", "format": "pdf", "size": 512000}
+        ]
+      }'
