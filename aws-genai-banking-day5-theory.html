@@ -1,0 +1,1971 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>AWS GenAI for Banking - Day 5: SageMaker ML Training &amp; Deployment | Great Learning</title>
+<style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: linear-gradient(135deg, #1a1a1a 0%, #001a33 25%, #0066cc 50%, #001a33 75%, #000000 100%); 
+            min-height: 100vh; 
+            color: #333333;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        
+        /* Great Learning Header Branding */
+        .gl-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 30px;
+            background: rgba(0,0,0,0.8);
+            border-radius: 12px;
+            margin: 20px auto;
+            max-width: 1400px;
+            min-height: 70px;
+            border: 2px solid #0066cc;
+        }
+        .gl-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .gl-logo svg { height: 50px; }
+        .gl-badge {
+            background: linear-gradient(135deg, #0066cc 0%, #0080ff 100%);
+            color: #333333;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            box-shadow: 0 4px 15px rgba(0, 102, 204, 0.3);
+        }
+        
+        /* Great Learning Footer */
+        .gl-footer {
+            margin-top: 60px;
+            padding: 40px 30px;
+            background: rgba(0,0,0,0.8);
+            border-radius: 12px;
+            text-align: center;
+            max-width: 1400px;
+            margin-left: auto;
+            margin-right: auto;
+            border: 2px solid #0066cc;
+        }
+        .gl-footer-logo { margin-bottom: 25px; }
+        .gl-copyright {
+            background: rgba(0,0,0,0.6);
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            color: #333333;
+        }
+        
+        .slide { 
+            min-height: 100vh; 
+            padding: 40px 60px; 
+            background: linear-gradient(135deg, #ffffff 0%, #f8f8f8 100%); 
+            margin: 20px auto; 
+            max-width: 1400px; 
+            border-radius: 12px; 
+            box-shadow: 0 20px 60px rgba(0, 102, 204, 0.3); 
+            page-break-after: always; 
+            color: #333;
+            border: 3px solid #0066cc;
+            position: relative;
+         color: #333333;}
+        
+        /* Slide Header for every slide */
+        .slide-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 0;
+            margin: -40px -60px 30px -60px;
+            padding: 15px 60px;
+            background: rgba(0, 102, 204, 0.1);
+            border-bottom: 2px solid #0066cc;
+            border-radius: 12px 12px 0 0;
+        }
+        .slide-header .gl-logo svg { height: 40px; }
+        .slide-header .gl-badge {
+            background: linear-gradient(135deg, #0066cc 0%, #0080ff 100%);
+            color: #333333;
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        
+        /* Slide Footer for every slide */
+        .slide-footer {
+            position: absolute;
+            bottom: 15px;
+            left: 60px;
+            right: 60px;
+            text-align: center;
+            font-size: 0.7em;
+            color: #666;
+            border-top: 1px solid #eee;
+            padding-top: 10px;
+        }
+        
+        h1 { 
+            color: #0066cc; 
+            font-size: 2.4em; 
+            margin-bottom: 10px; 
+            border-bottom: 4px solid #0066cc; 
+            padding-bottom: 15px; 
+        }
+        h2 { color: #001a33; font-size: 1.6em; margin: 25px 0 15px; }
+        h3 { color: #0066cc; font-size: 1.2em; margin: 20px 0 10px; }
+        h4 { color: #001a33; font-size: 1.05em; margin-bottom: 8px; }
+        .subtitle { color: #666; font-size: 1.1em; margin-bottom: 25px; }
+        
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; margin: 20px 0; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin: 20px 0; }
+        .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 15px; margin: 20px 0; }
+        
+        .card { 
+            background: #f8f8f8; 
+            border-radius: 8px; 
+            padding: 18px; 
+            border-left: 4px solid #0066cc; 
+            box-shadow: 0 4px 15px rgba(0, 102, 204, 0.1);
+        }
+        .card.green { border-left-color: #28a745; background: #f0fff0; }
+        .card.orange { border-left-color: #0066cc; background: #fff8f0; }
+        .card.purple { border-left-color: #6f42c1; background: #f8f0ff; }
+        .card.red { border-left-color: #dc3545; background: #fff0f0; }
+        .card.blue { border-left-color: #007bff; background: #f0f8ff; }
+        .card.aws { border-left-color: #ff9900; background: #fff9e6; }
+        
+        ul { margin-left: 20px; line-height: 1.7; }
+        li { margin: 4px 0; }
+        
+        .highlight { 
+            background: #0066cc; 
+            color: #333333; 
+            padding: 3px 8px; 
+            border-radius: 4px; 
+            font-size: 0.85em; 
+        }
+        .highlight.green { background: #28a745; }
+        .highlight.orange { background: #0066cc; }
+        .highlight.red { background: #dc3545; }
+        .highlight.purple { background: #6f42c1; }
+        .highlight.aws { background: #ff9900; }
+        
+        .time-badge { 
+            background: #28a745; 
+            color: #333333; 
+            padding: 5px 12px; 
+            border-radius: 20px; 
+            font-size: 0.85em; 
+            display: inline-block; 
+            margin-bottom: 15px; 
+        }
+        .module-badge { 
+            background: #0066cc; 
+            color: #333333; 
+            padding: 5px 15px; 
+            border-radius: 20px; 
+            font-size: 0.9em; 
+            display: inline-block; 
+            margin-bottom: 10px; 
+        }
+        .day-badge { 
+            background: #0066cc; 
+            color: #333333; 
+            padding: 8px 20px; 
+            border-radius: 25px; 
+            font-size: 1.1em; 
+            display: inline-block; 
+        }
+        
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 15px 0; 
+            font-size: 0.95em; 
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 102, 204, 0.1);
+        }
+        th, td { 
+            padding: 10px 12px; 
+            text-align: left; 
+            border-bottom: 1px solid #eee; 
+        }
+        th { 
+            background: linear-gradient(135deg, #0066cc 0%, #0080ff 100%); 
+            color: #333333; 
+            font-weight: 600;
+        }
+        tr:hover { background: #f8f8f8; }
+        
+        .code-block { 
+            background: #1a1a1a; 
+            color: #333333; 
+            padding: 15px; 
+            border-radius: 8px; 
+            font-family: 'Consolas', monospace; 
+            font-size: 0.85em; 
+            overflow-x: auto; 
+            margin: 10px 0; 
+            white-space: pre-wrap; 
+            border-left: 4px solid #0066cc;
+        }
+        .code-block .comment { color: #6a9955; }
+        .code-block .keyword { color: #0066cc; }
+        .code-block .string { color: #ce9178; }
+        .code-block .function { color: #dcdcaa; }
+        
+        .tip-box { 
+            display: flex; 
+            align-items: flex-start; 
+            gap: 12px; 
+            padding: 15px; 
+            background: linear-gradient(135deg, #e6f7ff 0%, #f0f8ff 100%); 
+            border-radius: 8px; 
+            margin: 10px 0; 
+            border-left: 4px solid #007bff; 
+        }
+        .warning-box { 
+            display: flex; 
+            align-items: flex-start; 
+            gap: 12px; 
+            padding: 15px; 
+            background: linear-gradient(135deg, #fff4ce 0%, #fff8e1 100%); 
+            border-radius: 8px; 
+            margin: 10px 0; 
+            border-left: 4px solid #ff9900; 
+        }
+        .danger-box { 
+            display: flex; 
+            align-items: flex-start; 
+            gap: 12px; 
+            padding: 15px; 
+            background: linear-gradient(135deg, #fde7e9 0%, #fff0f0 100%); 
+            border-radius: 8px; 
+            margin: 10px 0; 
+            border-left: 4px solid #dc3545; 
+        }
+        .success-box { 
+            display: flex; 
+            align-items: flex-start; 
+            gap: 12px; 
+            padding: 15px; 
+            background: linear-gradient(135deg, #dff6dd 0%, #f0fff0 100%); 
+            border-radius: 8px; 
+            margin: 10px 0; 
+            border-left: 4px solid #28a745; 
+        }
+        .icon { font-size: 1.5em; }
+        
+        .banking-scenario { 
+            background: linear-gradient(135deg, #001a33 0%, #1a1a1a 100%); 
+            color: #ffffff; 
+            padding: 20px; 
+            border-radius: 10px; 
+            margin: 15px 0; 
+            border: 2px solid #0066cc;
+        }
+        .banking-scenario h4 { color: #0066cc; margin-bottom: 10px; }
+        
+        /* AWS Service Badges */
+        .aws-badge { 
+            background: #ff9900; 
+            color: white; 
+            padding: 4px 10px; 
+            border-radius: 4px; 
+            font-size: 0.8em; 
+        }
+        .ml-badge { 
+            background: #007bff; 
+            color: white; 
+            padding: 4px 10px; 
+            border-radius: 4px; 
+            font-size: 0.8em; 
+        }
+        .python-badge { 
+            background: #28a745; 
+            color: white; 
+            padding: 4px 10px; 
+            border-radius: 4px; 
+            font-size: 0.8em; 
+        }
+        
+        /* Architecture Diagrams */
+        .arch-container { 
+            max-width: 900px; 
+            margin: 20px auto; 
+            background: #f8f8f8;
+            border-radius: 12px;
+            padding: 20px;
+            border: 2px solid #0066cc;
+        }
+        .arch-layer { 
+            margin: 10px 0; 
+            padding: 25px; 
+            border-radius: 8px; 
+            position: relative; 
+        }
+        .arch-layer-title { 
+            position: absolute; 
+            top: -12px; 
+            left: 20px; 
+            background: white; 
+            padding: 4px 15px; 
+            border-radius: 20px; 
+            font-weight: bold; 
+            font-size: 0.85em; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+            color: #0066cc;
+        }
+        .arch-services { 
+            display: flex; 
+            justify-content: center; 
+            gap: 15px; 
+            flex-wrap: wrap; 
+            margin-top: 10px; 
+        }
+        .arch-service { 
+            background: white; 
+            padding: 15px 20px; 
+            border-radius: 8px; 
+            text-align: center; 
+            min-width: 120px; 
+            box-shadow: 0 2px 8px rgba(0, 102, 204, 0.1); 
+            border: 1px solid #0066cc;
+        }
+        .arch-service-icon { font-size: 1.8em; margin-bottom: 8px; color: #0066cc; }
+        .arch-service-name { font-weight: 600; font-size: 0.9em; color: #001a33; }
+        .arch-service-desc { font-size: 0.75em; color: #666; margin-top: 4px; }
+        
+        .layer-orange { background: linear-gradient(135deg, #fff8f0 0%, #ffe8d6 100%); }
+        .layer-blue { background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%); }
+        .layer-green { background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%); }
+        
+        /* Pipeline Styles */
+        .pipeline { 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            gap: 0; 
+            margin: 30px 0; 
+            flex-wrap: wrap; 
+        }
+        .pipeline-step { 
+            position: relative; 
+            padding: 20px 25px; 
+            min-width: 130px; 
+            text-align: center; 
+            color: #333333; 
+        }
+        .pipeline-step::after { 
+            content: ''; 
+            position: absolute; 
+            right: -15px; 
+            top: 50%; 
+            transform: translateY(-50%); 
+            border: 15px solid transparent; 
+            border-left: 15px solid; 
+            z-index: 1; 
+        }
+        .pipeline-step.orange { background: #0066cc; }
+        .pipeline-step.orange::after { border-left-color: #0066cc; }
+        .pipeline-step.aws { background: #ff9900; }
+        .pipeline-step.aws::after { border-left-color: #ff9900; }
+        .pipeline-step.blue { background: #007bff; }
+        .pipeline-step.blue::after { border-left-color: #007bff; }
+        .pipeline-step.green { background: #28a745; }
+        .pipeline-step.green::after { border-left-color: #28a745; }
+        .pipeline-step:last-child::after { display: none; }
+        .pipeline-step small { display: block; opacity: 0.9; font-size: 0.8em; margin-top: 5px; }
+        
+        /* Flow Diagram Styles */
+        .flow-container {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 30px;
+            margin: 20px 0;
+            border: 2px solid #0066cc;
+        }
+        
+        .flow-step {
+            display: flex;
+            align-items: center;
+            margin: 15px 0;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .flow-number {
+            background: #0066cc;
+            color: #333333;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 20px;
+            flex-shrink: 0;
+        }
+        
+        .flow-content {
+            flex: 1;
+        }
+        
+        .flow-title {
+            font-weight: bold;
+            color: #001a33;
+            margin-bottom: 5px;
+        }
+        
+        .flow-description {
+            color: #666;
+            font-size: 0.9em;
+        }
+        
+        .flow-arrow {
+            text-align: center;
+            color: #0066cc;
+            font-size: 1.5em;
+            margin: 10px 0;
+        }
+        
+        @media print { 
+            .slide { 
+                box-shadow: none; 
+                margin: 0; 
+                padding: 30px 40px !important;
+                page-break-after: always; 
+                border: none;
+                max-width: 100% !important;
+                width: 210mm !important; /* A4 width */
+                min-height: auto !important;
+                color: #333333;
+            }
+            body { 
+                background: white; 
+                margin: 0;
+                padding: 0;
+            }
+            .gl-header, .gl-footer { 
+                display: none; /* Hide headers/footers for cleaner export */
+            }
+            .slide-header {
+                margin: -30px -40px 20px -40px !important;
+                padding: 10px 40px !important;
+            }
+            .slide-footer {
+                position: relative !important;
+                bottom: auto !important;
+                left: auto !important;
+                right: auto !important;
+                margin-top: 20px;
+                page-break-inside: avoid;
+            }
+            /* Ensure SVG diagrams fit within page */
+            svg {
+                max-width: 100% !important;
+                height: auto !important;
+                page-break-inside: avoid;
+            }
+            .arch-container {
+                max-width: 100% !important;
+                page-break-inside: avoid;
+                margin: 15px 0 !important;
+            }
+            /* Prevent content from breaking across pages */
+            .card, .banking-scenario, .flow-container, 
+            .tip-box, .warning-box, .danger-box, .success-box {
+                page-break-inside: avoid;
+            }
+            table {
+                page-break-inside: avoid;
+                font-size: 0.85em !important;
+            }
+            h1, h2, h3, h4 {
+                page-break-after: avoid;
+            }
+            /* Adjust grid layouts for print */
+            .grid-2, .grid-3, .grid-4 {
+                gap: 15px !important;
+            }
+            /* Ensure text is readable */
+            * {
+                color-adjust: exact !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+        }
+    </style>
+</head>
+<body>
+<!-- Great Learning Header -->
+<div class="gl-header">
+<div class="gl-logo">
+<svg height="56" viewbox="0 0 257 80" width="180" xmlns="http://www.w3.org/2000/svg">
+<g fill="none" fill-rule="evenodd">
+<path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"></path>
+<path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"></path>
+<path d="M47.307 61.583l10.626-13.099v-18.90H35.359L26.75 41.022h20.556z" fill="#0066cc"></path>
+<text fill="#0066cc" font-family="Arial, sans-serif" font-size="24" font-weight="bold" x="90" y="35">Great Learning</text>
+<text fill="#666" font-family="Arial, sans-serif" font-size="12" x="90" y="55">Excellence in Education</text>
+</g>
+</svg>
+</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 5px;">
+<div class="gl-badge">AWS GenAI Banking Workshop</div>
+<div style="font-size: 0.7em; color: #ccc; text-align: center;">
+            © Great Learning. All Rights Reserved. | Proprietary content - Unauthorized use prohibited
+        </div>
+</div>
+</div>
+<div class="container">
+<!-- SLIDE 1: Day 5 Title -->
+<div class="slide">
+<!-- Great Learning Header -->
+<div class="slide-header">
+<div class="gl-logo">
+<svg height="40" viewbox="0 0 257 80" width="150" xmlns="http://www.w3.org/2000/svg">
+<g fill="none" fill-rule="evenodd">
+<path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"></path>
+<path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"></path>
+<path d="M47.307 61.583l10.626-13.099v-18.90H35.359L26.75 41.022h20.556z" fill="#0066cc"></path>
+<text fill="#0066cc" font-family="Arial, sans-serif" font-size="20" font-weight="bold" x="90" y="35">Great Learning</text>
+<text fill="#666" font-family="Arial, sans-serif" font-size="10" x="90" y="50">Excellence in Education</text>
+</g>
+</svg>
+</div>
+<div class="gl-badge">AWS GenAI Banking Workshop</div>
+</div>
+<div style="display: flex; flex-direction: column; justify-content: center; height: 75vh; text-align: center;">
+<span class="day-badge" style="margin-bottom: 30px;">DAY 5</span>
+<p style="color: #0066cc; font-size: 1.2em; margin-bottom: 20px;">AWS GenAI Banking Workshop Series</p>
+<h1 style="font-size: 3em; border: none; text-align: center; color: #001a33;">SageMaker ML Training &amp; Deployment</h1>
+<p class="subtitle" style="font-size: 1.5em; margin: 20px 0; color: #0066cc;">Building Production-Ready Machine Learning for Banking</p>
+<p style="color: #666; font-size: 1.1em; margin-top: 30px;">From Data Preparation to Real-time ML Predictions</p>
+<div style="margin-top: 40px;">
+<span class="time-badge" style="font-size: 1em; padding: 12px 30px;">Full Day | 4 Hours</span>
+</div>
+<div style="margin-top: 30px;">
+<span class="highlight aws">SageMaker</span>
+<span class="highlight blue">ML Training</span>
+<span class="highlight orange">Model Deployment</span>
+<span class="highlight green">XGBoost</span>
+<span class="highlight purple">Jupyter Notebooks</span>
+</div>
+<div style="margin-top: 30px;">
+<span class="aws-badge">SageMaker Studio</span>
+<span class="cli-badge">Jupyter Notebooks</span>
+<span class="python-badge">Python ML</span>
+</div>
+<p style="margin-top: 40px; color: #999;">Prerequisites: Days 1-4 completed - AWS Foundations, S3, Lambda</p>
+</div>
+<!-- Slide Footer -->
+<div class="slide-footer">
+<strong>© 2024 Great Learning. All Rights Reserved.</strong> | AWS GenAI Banking Workshop - Day 5 | Proprietary content - Unauthorized use prohibited
+    </div>
+</div>
+<!-- SLIDE 2: Day 5 Detailed Agenda -->
+<div class="slide">
+<!-- Great Learning Header -->
+<div class="slide-header">
+<div class="gl-logo">
+<svg height="40" viewbox="0 0 257 80" width="150" xmlns="http://www.w3.org/2000/svg">
+<g fill="none" fill-rule="evenodd">
+<path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"></path>
+<path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"></path>
+<path d="M47.307 61.583l10.626-13.099v-18.90H35.359L26.75 41.022h20.556z" fill="#0066cc"></path>
+<text fill="#0066cc" font-family="Arial, sans-serif" font-size="20" font-weight="bold" x="90" y="35">Great Learning</text>
+<text fill="#666" font-family="Arial, sans-serif" font-size="10" x="90" y="50">Excellence in Education</text>
+</g>
+</svg>
+</div>
+<div class="gl-badge">AWS GenAI Banking Workshop</div>
+</div>
+<h1 style="color: #333;">📋 Day 5: Detailed Session Agenda</h1>
+<p class="subtitle">SageMaker ML Training &amp; Deployment - 4 Hours</p>
+<h2 style="color: #333;">Session Overview</h2>
+    <div class="grid-2">
+        <div class="card aws">
+            <h4 style="color: #333;">🎯 Learning Objectives</h4>
+            <ul>
+                <li style="color: #333;">Understand SageMaker architecture and ML workflow</li>
+                <li style="color: #333;">Train ML models using built-in algorithms (XGBoost)</li>
+                <li style="color: #333;">Deploy models to real-time inference endpoints</li>
+                <li style="color: #333;">Implement MLOps best practices for banking</li>
+                <li style="color: #333;">Build end-to-end ML pipelines for churn prediction</li>
+            </ul>
+        </div>
+        <div class="card orange">
+            <h4 style="color: #333;">🏦 SecureBank Focus</h4>
+            <ul>
+                <li style="color: #333;">Customer churn prediction model training</li>
+                <li style="color: #333;">Real-time fraud detection inference</li>
+                <li style="color: #333;">Automated model training and deployment</li>
+                <li style="color: #333;">Model monitoring and drift detection</li>
+                <li style="color: #333;">Cost optimization for ML workloads</li>
+            </ul>
+        </div>
+    </div>
+    
+    <h2 style="color: #333;">Detailed Schedule</h2>
+<table>
+<tr><th>Time</th><th>Module</th><th>Topic</th><th>Duration</th><th>Activities</th><th>Outcomes</th></tr>
+<tr>
+<td>9:00-9:10</td>
+<td><span class="highlight green">Welcome</span></td>
+<td>Day 5 Introduction</td>
+<td>10 min</td>
+<td>Day 2 Recap, Day 5 Objectives</td>
+<td>Context Setting</td>
+</tr>
+<tr>
+<td>9:10-10:10</td>
+<td><span class="highlight aws">Module 1</span></td>
+<td>SageMaker Overview &amp; Architecture</td>
+<td>60 min</td>
+<td>Components, Workflow, S3 Integration</td>
+<td>Platform Understanding</td>
+</tr>
+<tr>
+<td>10:10-10:25</td>
+<td><span class="highlight purple">Break</span></td>
+<td>Mid-Morning Break</td>
+<td>15 min</td>
+<td>Refreshment, Networking, Q&amp;A</td>
+<td>Re-energize</td>
+</tr>
+<tr>
+<td>10:25-11:25</td>
+<td><span class="highlight blue">Module 2</span></td>
+<td>Model Training &amp; XGBoost</td>
+<td>60 min</td>
+<td>Training Jobs, Hyperparameters, Lab</td>
+<td>Trained Model</td>
+</tr>
+<tr>
+<td>11:25-12:25</td>
+<td><span class="highlight orange">Module 3</span></td>
+<td>Model Deployment &amp; Endpoints</td>
+<td>60 min</td>
+<td>Real-time Inference, API Integration</td>
+<td>Production Endpoint</td>
+</tr>
+<tr>
+<td>12:25-12:55</td>
+<td><span class="highlight green">Module 4</span></td>
+<td>MLOps &amp; Monitoring</td>
+<td>30 min</td>
+<td>Model Monitor, Retraining, Best Practices</td>
+<td>MLOps Strategy</td>
+</tr>
+<tr>
+<td>12:55-1:00</td>
+<td><span class="highlight blue">Wrap-up</span></td>
+<td>Session Summary</td>
+<td>5 min</td>
+<td>Key Takeaways, Day 6 Preview</td>
+<td>Session Closure</td>
+</tr>
+</table>
+<h2 style="color: #333;">Hands-on Labs Overview</h2>
+<div class="grid-3">
+<div class="card green">
+<h4 style="color: #333;">🚀 Lab 1: SageMaker Setup</h4>
+<ul>
+<li style="color: #333;">Deploy SageMaker infrastructure with CloudFormation</li>
+<li style="color: #333;">Create and configure Notebook Instance</li>
+<li style="color: #333;">Setup S3 buckets for ML datasets and artifacts</li>
+<li style="color: #333;">Configure IAM roles for SageMaker access</li>
+</ul>
+</div>
+<div class="card blue">
+<h4 style="color: #333;">🤖 Lab 2: Model Training</h4>
+<ul>
+<li style="color: #333;">Load and preprocess telecom churn dataset</li>
+<li style="color: #333;">Perform train/test split and feature engineering</li>
+<li style="color: #333;">Launch XGBoost training job with hyperparameters</li>
+<li style="color: #333;">Monitor training progress and evaluate model</li>
+</ul>
+</div>
+<div class="card orange">
+<h4 style="color: #333;">🎯 Lab 3: Model Deployment</h4>
+<ul>
+<li style="color: #333;">Deploy trained model to SageMaker Endpoint</li>
+<li style="color: #333;">Configure real-time inference endpoint</li>
+<li style="color: #333;">Test endpoint with sample customer data</li>
+<li style="color: #333;">Implement batch inference for bulk predictions</li>
+</ul>
+</div>
+</div>
+<h2 style="color: #333;">Prerequisites &amp; Preparation</h2>
+<div class="grid-2">
+<div class="card purple">
+<h4 style="color: #333;">📋 Required Knowledge</h4>
+<ul>
+<li style="color: #333;"><strong>Day 1-4 Completion:</strong> AWS Foundations, S3, Lambda basics</li>
+<li style="color: #333;"><strong>Python Programming:</strong> Pandas, NumPy, data manipulation</li>
+<li style="color: #333;"><strong>ML Fundamentals:</strong> Classification, training, evaluation</li>
+<li style="color: #333;"><strong>Jupyter Notebooks:</strong> Cell execution, markdown, code</li>
+</ul>
+</div>
+<div class="card red">
+<h4 style="color: #333;">🛠️ Tools &amp; Setup</h4>
+<ul>
+<li style="color: #333;"><strong>SageMaker Notebook:</strong> Jupyter environment in AWS</li>
+<li style="color: #333;"><strong>Python 3.8+:</strong> With pip package manager</li>
+<li style="color: #333;"><strong>boto3 &amp; sagemaker:</strong> AWS SDK and SageMaker SDK</li>
+<li style="color: #333;"><strong>S3 Access:</strong> For datasets and model artifacts</li>
+</ul>
+</div>
+</div>
+<div class="success-box">
+<span class="icon">🚀</span>
+<div>
+<strong>Ready to Build ML Models:</strong> By the end of today, you'll have hands-on experience building, training, and deploying production-ready machine learning models for banking use cases using Amazon SageMaker.
+        </div>
+</div>
+<!-- Slide Footer -->
+<div class="slide-footer">
+<strong>© 2024 Great Learning. All Rights Reserved.</strong> | AWS GenAI Banking Workshop - Day 5 | Proprietary content - Unauthorized use prohibited
+    </div>
+</div>
+<!-- SLIDE 3: Module 1 - SageMaker Overview & Architecture -->
+<div class="slide">
+<!-- Great Learning Header -->
+<div class="slide-header">
+<div class="gl-logo">
+<svg height="40" viewbox="0 0 257 80" width="150" xmlns="http://www.w3.org/2000/svg">
+<g fill="none" fill-rule="evenodd">
+<path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"></path>
+<path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"></path>
+<path d="M47.307 61.583l10.626-13.099v-18.90H35.359L26.75 41.022h20.556z" fill="#0066cc"></path>
+<text fill="#0066cc" font-family="Arial, sans-serif" font-size="20" font-weight="bold" x="90" y="35">Great Learning</text>
+<text fill="#666" font-family="Arial, sans-serif" font-size="10" x="90" y="50">Excellence in Education</text>
+</g>
+</svg>
+</div>
+<div class="gl-badge">AWS GenAI Banking Workshop</div>
+</div>
+<span class="module-badge">Module 1</span>
+<span class="time-badge">60 Minutes</span>
+<h1 style="color: #333;">🤖 Amazon SageMaker Overview</h1>
+<p class="subtitle">Machine Learning Platform for Banking</p>
+<h2 style="color: #333;">What is Amazon SageMaker?</h2>
+<div class="banking-scenario">
+<h4 style="color: #ffffff;">🏦 SecureBank ML Transformation</h4>
+<div class="grid-2" style="margin-top: 15px; color: #ffffff;">
+<div style="color: #ffffff;">
+<p><strong>Business Challenges:</strong></p>
+<ul>
+<li style="color: #ffffff;"><strong>Customer Churn:</strong> 15% annual customer attrition</li>
+<li style="color: #ffffff;"><strong>Fraud Detection:</strong> Manual review of suspicious transactions</li>
+<li style="color: #ffffff;"><strong>Credit Risk:</strong> Time-consuming loan approval process</li>
+<li style="color: #ffffff;"><strong>Personalization:</strong> Generic product recommendations</li>
+<li style="color: #ffffff;"><strong>Compliance:</strong> Manual regulatory reporting</li>
+</ul>
+</div>
+<div style="color: #ffffff;">
+<p><strong>SageMaker Solutions:</strong></p>
+<ul>
+<li style="color: #ffffff;"><strong>Predictive Models:</strong> Identify at-risk customers early</li>
+<li style="color: #ffffff;"><strong>Real-time Scoring:</strong> Instant fraud detection</li>
+<li style="color: #ffffff;"><strong>Automated Decisions:</strong> Fast loan approvals</li>
+<li style="color: #ffffff;"><strong>ML Recommendations:</strong> Personalized banking products</li>
+<li style="color: #ffffff;"><strong>Automated Reporting:</strong> ML-powered compliance</li>
+</ul>
+</div>
+</div>
+</div>
+
+<h2 style="color: #333;">SecureBank SageMaker Architecture</h2>
+<div class="arch-container">
+<div style="text-align: center; margin-bottom: 30px;">
+<svg height="600" viewbox="0 0 900 600" width="900" xmlns="http://www.w3.org/2000/svg">
+<!-- Background -->
+<rect fill="#f8f9fa" height="600" rx="10" stroke="#0066cc" stroke-width="2" width="900"></rect>
+<!-- Title -->
+<text fill="#001a33" font-size="18" font-weight="bold" text-anchor="middle" x="450" y="30">SecureBank SageMaker ML Pipeline</text>
+
+<!-- Data Layer -->
+<rect fill="#e6f7ff" height="100" rx="8" stroke="#007bff" stroke-width="2" width="800" x="50" y="60"></rect>
+<text fill="#007bff" font-size="14" font-weight="bold" x="70" y="85">Data Sources & Storage</text>
+<!-- S3 Training Data -->
+<rect fill="#ffffff" height="50" rx="5" stroke="#007bff" stroke-width="1" width="150" x="80" y="100"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="155" y="120">S3 Training Data</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="155" y="135">Customer Records</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="155" y="145">Transaction History</text>
+<!-- S3 Model Artifacts -->
+<rect fill="#ffffff" height="50" rx="5" stroke="#007bff" stroke-width="1" width="150" x="250" y="100"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="325" y="120">S3 Model Artifacts</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="325" y="135">Trained Models</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="325" y="145">Model Versions</text>
+<!-- RDS Database -->
+<rect fill="#ffffff" height="50" rx="5" stroke="#007bff" stroke-width="1" width="150" x="420" y="100"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="495" y="120">RDS Database</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="495" y="135">Banking Data</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="495" y="145">Ground Truth</text>
+<!-- Data Wrangler -->
+<rect fill="#ffffff" height="50" rx="5" stroke="#007bff" stroke-width="1" width="150" x="590" y="100"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="665" y="120">Data Wrangler</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="665" y="135">Data Prep</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="665" y="145">Feature Engineering</text>
+
+<!-- Development Layer -->
+<rect fill="#fff8f0" height="100" rx="8" stroke="#ff9900" stroke-width="2" width="800" x="50" y="180"></rect>
+<text fill="#ff9900" font-size="14" font-weight="bold" x="70" y="205">Development & Training</text>
+<!-- Notebook Instances -->
+<rect fill="#ffffff" height="50" rx="5" stroke="#ff9900" stroke-width="1" width="150" x="80" y="220"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="155" y="240">Notebook Instances</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="155" y="255">Jupyter Lab</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="155" y="265">ml.t3.medium</text>
+<!-- Training Jobs -->
+<rect fill="#ffffff" height="50" rx="5" stroke="#ff9900" stroke-width="1" width="150" x="250" y="220"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="325" y="240">Training Jobs</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="325" y="255">XGBoost Algorithm</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="325" y="265">ml.m5.xlarge</text>
+<!-- Hyperparameter Tuning -->
+<rect fill="#ffffff" height="50" rx="5" stroke="#ff9900" stroke-width="1" width="150" x="420" y="220"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="495" y="240">Hyperparameter Tuning</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="495" y="255">Automatic Optimization</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="495" y="265">Bayesian Search</text>
+<!-- Model Registry -->
+<rect fill="#ffffff" height="50" rx="5" stroke="#ff9900" stroke-width="1" width="150" x="590" y="220"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="665" y="240">Model Registry</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="665" y="255">Version Control</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="665" y="265">Model Lineage</text>
+
+<!-- Deployment Layer -->
+<rect fill="#f0fff0" height="100" rx="8" stroke="#28a745" stroke-width="2" width="800" x="50" y="300"></rect>
+<text fill="#28a745" font-size="14" font-weight="bold" x="70" y="325">Model Deployment & Inference</text>
+<!-- Real-time Endpoints -->
+<rect fill="#ffffff" height="50" rx="5" stroke="#28a745" stroke-width="1" width="150" x="80" y="340"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="155" y="360">Real-time Endpoints</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="155" y="375">Churn Prediction</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="155" y="385">ml.m5.xlarge</text>
+<!-- Batch Transform -->
+<rect fill="#ffffff" height="50" rx="5" stroke="#28a745" stroke-width="1" width="150" x="250" y="340"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="325" y="360">Batch Transform</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="325" y="375">Bulk Predictions</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="325" y="385">Scheduled Jobs</text>
+<!-- Multi-model Endpoints -->
+<rect fill="#ffffff" height="50" rx="5" stroke="#28a745" stroke-width="1" width="150" x="420" y="340"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="495" y="360">Multi-model Endpoints</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="495" y="375">Multiple Models</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="495" y="385">Cost Optimization</text>
+<!-- Auto-scaling -->
+<rect fill="#ffffff" height="50" rx="5" stroke="#28a745" stroke-width="1" width="150" x="590" y="340"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="665" y="360">Auto-scaling</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="665" y="375">Dynamic Scaling</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="665" y="385">1-5 Instances</text>
+
+<!-- Integration Layer -->
+<rect fill="#f8f0ff" height="100" rx="8" stroke="#6f42c1" stroke-width="2" width="800" x="50" y="420"></rect>
+<text fill="#6f42c1" font-size="14" font-weight="bold" x="70" y="445">Banking Application Integration</text>
+<!-- API Gateway -->
+<rect fill="#ffffff" height="50" rx="5" stroke="#6f42c1" stroke-width="1" width="150" x="80" y="460"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="155" y="480">API Gateway</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="155" y="495">REST APIs</text>
+<!-- Lambda Functions -->
+<rect fill="#ffffff" height="50" rx="5" stroke="#6f42c1" stroke-width="1" width="150" x="250" y="460"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="325" y="480">Lambda Functions</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="325" y="495">Pre/Post Processing</text>
+<!-- DynamoDB Cache -->
+<rect fill="#ffffff" height="50" rx="5" stroke="#6f42c1" stroke-width="1" width="150" x="420" y="460"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="495" y="480">DynamoDB Cache</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="495" y="495">Prediction Cache</text>
+<!-- Banking Apps -->
+<rect fill="#ffffff" height="50" rx="5" stroke="#6f42c1" stroke-width="1" width="150" x="590" y="460"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="665" y="480">Banking Apps</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="665" y="495">Web & Mobile</text>
+
+<!-- Monitoring Layer -->
+<rect fill="#fff0f0" height="60" rx="8" stroke="#dc3545" stroke-width="2" width="800" x="50" y="540"></rect>
+<text fill="#dc3545" font-size="14" font-weight="bold" x="70" y="565">Monitoring & MLOps</text>
+<!-- CloudWatch -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#dc3545" stroke-width="1" width="120" x="80" y="565"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="140" y="585">CloudWatch</text>
+<!-- Model Monitor -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#dc3545" stroke-width="1" width="120" x="220" y="565"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="280" y="585">Model Monitor</text>
+<!-- X-Ray -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#dc3545" stroke-width="1" width="120" x="360" y="565"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="420" y="585">X-Ray Tracing</text>
+<!-- CloudTrail -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#dc3545" stroke-width="1" width="120" x="500" y="565"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="560" y="585">CloudTrail Audit</text>
+<!-- IAM -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#dc3545" stroke-width="1" width="120" x="640" y="565"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="700" y="585">IAM Security</text>
+
+<!-- Connection Lines -->
+<line stroke="#007bff" stroke-width="2" x1="155" x2="155" y1="150" y2="180"></line>
+<line stroke="#007bff" stroke-width="2" x1="325" x2="325" y1="150" y2="180"></line>
+<line stroke="#ff9900" stroke-width="2" x1="325" x2="325" y1="270" y2="300"></line>
+<line stroke="#28a745" stroke-width="2" x1="155" x2="155" y1="390" y2="420"></line>
+<line stroke="#28a745" stroke-width="2" x1="325" x2="325" y1="390" y2="420"></line>
+</svg>
+</div>
+</div>
+
+<h2 style="color: #333;">SageMaker Core Components</h2>
+<div class="grid-3">
+<div class="card aws">
+<h4 style="color: #333;">📓 Notebook Instances</h4>
+<ul>
+<li style="color: #333;"><strong>Jupyter Environment:</strong> Interactive ML development</li>
+<li style="color: #333;"><strong>Pre-installed Libraries:</strong> TensorFlow, PyTorch, scikit-learn</li>
+<li style="color: #333;"><strong>Instance Types:</strong> CPU and GPU options</li>
+<li style="color: #333;"><strong>Lifecycle Config:</strong> Automated setup scripts</li>
+</ul>
+</div>
+<div class="card blue">
+<h4 style="color: #333;">🎯 Training Jobs</h4>
+<ul>
+<li style="color: #333;"><strong>Built-in Algorithms:</strong> XGBoost, Linear Learner, etc.</li>
+<li style="color: #333;"><strong>Custom Containers:</strong> Bring your own algorithm</li>
+<li style="color: #333;"><strong>Distributed Training:</strong> Multi-instance training</li>
+<li style="color: #333;"><strong>Hyperparameter Tuning:</strong> Automated optimization</li>
+</ul>
+</div>
+<div class="card green">
+<h4 style="color: #333;">🚀 Model Endpoints</h4>
+<ul>
+<li style="color: #333;"><strong>Real-time Inference:</strong> Low-latency predictions</li>
+<li style="color: #333;"><strong>Batch Transform:</strong> Offline batch processing</li>
+<li style="color: #333;"><strong>Auto-scaling:</strong> Handle variable load</li>
+<li style="color: #333;"><strong>Multi-model:</strong> Host multiple models</li>
+</ul>
+</div>
+</div>
+
+<h2 style="color: #333;">SageMaker ML Workflow</h2>
+<div class="flow-container">
+<div class="flow-step">
+<div class="flow-number">1</div>
+<div class="flow-content">
+<div class="flow-title">Data Preparation</div>
+<div class="flow-description">Load data from S3, clean, transform, and split into train/test sets</div>
+</div>
+</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">
+<div class="flow-number">2</div>
+<div class="flow-content">
+<div class="flow-title">Model Training</div>
+<div class="flow-description">Configure training job, select algorithm, set hyperparameters</div>
+</div>
+</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">
+<div class="flow-number">3</div>
+<div class="flow-content">
+<div class="flow-title">Model Evaluation</div>
+<div class="flow-description">Assess model performance using validation metrics</div>
+</div>
+</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">
+<div class="flow-number">4</div>
+<div class="flow-content">
+<div class="flow-title">Model Deployment</div>
+<div class="flow-description">Deploy to endpoint for real-time or batch inference</div>
+</div>
+</div>
+</div>
+
+<h2 style="color: #333;">SageMaker & S3 Integration</h2>
+<div class="grid-2">
+<div class="card orange">
+<h4 style="color: #333;">📦 S3 for ML Data</h4>
+<ul>
+<li style="color: #333;"><strong>Training Data:</strong> Store datasets in S3 buckets</li>
+<li style="color: #333;"><strong>Model Artifacts:</strong> Trained models saved to S3</li>
+<li style="color: #333;"><strong>Batch Input/Output:</strong> Transform job data</li>
+<li style="color: #333;"><strong>Versioning:</strong> Track data and model versions</li>
+<li style="color: #333;"><strong>Encryption:</strong> SSE-S3 or SSE-KMS</li>
+</ul>
+</div>
+<div class="card purple">
+<h4 style="color: #333;">🔐 IAM Roles</h4>
+<ul>
+<li style="color: #333;"><strong>SageMaker Execution Role:</strong> Access S3, ECR, CloudWatch</li>
+<li style="color: #333;"><strong>S3 Permissions:</strong> Read training data, write artifacts</li>
+<li style="color: #333;"><strong>CloudWatch Logs:</strong> Training job logging</li>
+<li style="color: #333;"><strong>ECR Access:</strong> Pull custom containers</li>
+<li style="color: #333;"><strong>Least Privilege:</strong> Minimal required permissions</li>
+</ul>
+</div>
+</div>
+
+<h2 style="color: #333;">Banking ML Use Cases</h2>
+<div class="banking-scenario">
+<h4 style="color: #ffffff;">🏦 SecureBank SageMaker Applications</h4>
+<div class="grid-2" style="margin-top: 15px; color: #ffffff;">
+<div style="color: #ffffff;">
+<p><strong>Customer Analytics:</strong></p>
+<ul>
+<li style="color: #ffffff;"><strong>Churn Prediction:</strong> XGBoost classification model</li>
+<li style="color: #ffffff;"><strong>Lifetime Value:</strong> Regression for customer worth</li>
+<li style="color: #ffffff;"><strong>Segmentation:</strong> K-means clustering</li>
+<li style="color: #ffffff;"><strong>Next Best Action:</strong> Recommendation engine</li>
+</ul>
+</div>
+<div style="color: #ffffff;">
+<p><strong>Risk & Fraud:</strong></p>
+<ul>
+<li style="color: #ffffff;"><strong>Fraud Detection:</strong> Real-time transaction scoring</li>
+<li style="color: #ffffff;"><strong>Credit Risk:</strong> Loan default prediction</li>
+<li style="color: #ffffff;"><strong>AML Detection:</strong> Money laundering patterns</li>
+<li style="color: #ffffff;"><strong>Anomaly Detection:</strong> Unusual account activity</li>
+</ul>
+</div>
+</div>
+</div>
+
+<h2 style="color: #333;">SageMaker Setup Example</h2>
+<div class="grid-2">
+<div class="card green">
+<h4 style="color: #333;">🔧 Create Notebook Instance</h4>
+<div style="color: #666; font-style: italic; padding: 15px; background: #f0f8ff; border-radius: 8px; margin: 15px 0; border-left: 4px solid #0066cc;">💡 Code examples available in Lab 1 Jupyter notebook</div>
+</div>
+<div class="card blue">
+<h4 style="color: #333;">📊 Load Data from S3</h4>
+<div style="color: #666; font-style: italic; padding: 15px; background: #f0f8ff; border-radius: 8px; margin: 15px 0; border-left: 4px solid #0066cc;">💡 Code examples available in Lab 1 Jupyter notebook</div>
+</div>
+</div>
+
+<div class="warning-box">
+<span class="icon">⚠️</span>
+<div>
+<strong>Cost Management:</strong> Stop notebook instances when not in use. Training jobs automatically terminate after completion. Use spot instances for training to save up to 70% on costs.
+</div>
+</div>
+
+<div class="success-box">
+<span class="icon">🎯</span>
+<div>
+<strong>SecureBank Success:</strong> SageMaker enables SecureBank to train and deploy ML models 10x faster than traditional approaches, reducing time-to-market from months to days.
+</div>
+</div>
+<!-- Slide Footer -->
+<div class="slide-footer">
+<strong>© 2024 Great Learning. All Rights Reserved.</strong> | AWS GenAI Banking Workshop - Day 5 | Proprietary content - Unauthorized use prohibited
+</div>
+</div>
+
+<!-- SLIDE 4: Module 2 - Model Training & XGBoost -->
+<div class="slide">
+<!-- Great Learning Header -->
+<div class="slide-header">
+<div class="gl-logo">
+<svg height="40" viewbox="0 0 257 80" width="150" xmlns="http://www.w3.org/2000/svg">
+<g fill="none" fill-rule="evenodd">
+<path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"></path>
+<path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"></path>
+<path d="M47.307 61.583l10.626-13.099v-18.90H35.359L26.75 41.022h20.556z" fill="#0066cc"></path>
+<text fill="#0066cc" font-family="Arial, sans-serif" font-size="20" font-weight="bold" x="90" y="35">Great Learning</text>
+<text fill="#666" font-family="Arial, sans-serif" font-size="10" x="90" y="50">Excellence in Education</text>
+</g>
+</svg>
+</div>
+<div class="gl-badge">AWS GenAI Banking Workshop</div>
+</div>
+<span class="module-badge">Module 2</span>
+<span class="time-badge">60 Minutes</span>
+<h1 style="color: #333;">📊 Model Training with XGBoost</h1>
+<p class="subtitle">Training ML Models for Customer Churn Prediction</p>
+
+<h2 style="color: #333;">What is XGBoost?</h2>
+<div class="banking-scenario">
+<h4 style="color: #ffffff;">🏦 SecureBank Churn Prediction Challenge</h4>
+<div class="grid-2" style="margin-top: 15px; color: #ffffff;">
+<div style="color: #ffffff;">
+<p><strong>Business Problem:</strong></p>
+<ul>
+<li style="color: #ffffff;"><strong>Customer Churn:</strong> 15% annual attrition rate</li>
+<li style="color: #ffffff;"><strong>Revenue Loss:</strong> $5M annually from churned customers</li>
+<li style="color: #ffffff;"><strong>Late Detection:</strong> Customers leave before intervention</li>
+<li style="color: #ffffff;"><strong>Generic Retention:</strong> One-size-fits-all approach</li>
+</ul>
+</div>
+<div style="color: #ffffff;">
+<p><strong>ML Solution:</strong></p>
+<ul>
+<li style="color: #ffffff;"><strong>Predictive Model:</strong> Identify at-risk customers 90 days early</li>
+<li style="color: #ffffff;"><strong>92% Accuracy:</strong> Reliable churn predictions</li>
+<li style="color: #ffffff;"><strong>Targeted Retention:</strong> Personalized interventions</li>
+<li style="color: #ffffff;"><strong>ROI:</strong> $2M annual savings from reduced churn</li>
+</ul>
+</div>
+</div>
+</div>
+
+<h2 style="color: #333;">XGBoost Algorithm Overview</h2>
+<div class="grid-3">
+<div class="card aws">
+<h4 style="color: #333;">🌳 Gradient Boosting</h4>
+<ul>
+<li style="color: #333;"><strong>Ensemble Method:</strong> Combines multiple weak learners</li>
+<li style="color: #333;"><strong>Sequential Training:</strong> Each tree corrects previous errors</li>
+<li style="color: #333;"><strong>High Accuracy:</strong> State-of-the-art performance</li>
+<li style="color: #333;"><strong>Handles Missing Data:</strong> Built-in support</li>
+</ul>
+</div>
+<div class="card blue">
+<h4 style="color: #333;">⚡ Performance Features</h4>
+<ul>
+<li style="color: #333;"><strong>Parallel Processing:</strong> Fast training on large datasets</li>
+<li style="color: #333;"><strong>Regularization:</strong> Prevents overfitting</li>
+<li style="color: #333;"><strong>Tree Pruning:</strong> Optimal tree depth</li>
+<li style="color: #333;"><strong>Cross-validation:</strong> Built-in CV support</li>
+</ul>
+</div>
+<div class="card green">
+<h4 style="color: #333;">🎯 Use Cases</h4>
+<ul>
+<li style="color: #333;"><strong>Classification:</strong> Churn, fraud, default prediction</li>
+<li style="color: #333;"><strong>Regression:</strong> Customer lifetime value</li>
+<li style="color: #333;"><strong>Ranking:</strong> Product recommendations</li>
+<li style="color: #333;"><strong>Structured Data:</strong> Tabular banking data</li>
+</ul>
+</div>
+</div>
+
+<h2 style="color: #333;">Training Job Workflow</h2>
+<div class="flow-container">
+<div class="flow-step">
+<div class="flow-number">1</div>
+<div class="flow-content">
+<div class="flow-title">Data Preparation</div>
+<div class="flow-description">Load telecom churn dataset, handle missing values, encode categorical features</div>
+</div>
+</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">
+<div class="flow-number">2</div>
+<div class="flow-content">
+<div class="flow-title">Train/Test Split</div>
+<div class="flow-description">Split data 80/20, upload to S3 in CSV format</div>
+</div>
+</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">
+<div class="flow-number">3</div>
+<div class="flow-content">
+<div class="flow-title">Configure Training Job</div>
+<div class="flow-description">Set hyperparameters, instance type, and S3 paths</div>
+</div>
+</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">
+<div class="flow-number">4</div>
+<div class="flow-content">
+<div class="flow-title">Launch & Monitor</div>
+<div class="flow-description">Start training job, monitor CloudWatch logs and metrics</div>
+</div>
+</div>
+</div>
+
+<h2 style="color: #333;">Key Hyperparameters</h2>
+<div class="grid-2">
+<div class="card orange">
+<h4 style="color: #333;">🔧 Model Parameters</h4>
+<ul>
+<li style="color: #333;"><strong>max_depth:</strong> Maximum tree depth (3-10)</li>
+<li style="color: #333;"><strong>eta (learning_rate):</strong> Step size shrinkage (0.01-0.3)</li>
+<li style="color: #333;"><strong>num_round:</strong> Number of boosting rounds (50-500)</li>
+<li style="color: #333;"><strong>subsample:</strong> Fraction of training data (0.5-1.0)</li>
+<li style="color: #333;"><strong>colsample_bytree:</strong> Feature sampling (0.5-1.0)</li>
+</ul>
+</div>
+<div class="card purple">
+<h4 style="color: #333;">📊 Objective Functions</h4>
+<ul>
+<li style="color: #333;"><strong>binary:logistic:</strong> Binary classification (churn yes/no)</li>
+<li style="color: #333;"><strong>multi:softmax:</strong> Multi-class classification</li>
+<li style="color: #333;"><strong>reg:squarederror:</strong> Regression tasks</li>
+<li style="color: #333;"><strong>rank:pairwise:</strong> Ranking problems</li>
+</ul>
+</div>
+</div>
+
+<h2 style="color: #333;">Model Evaluation Metrics</h2>
+<table>
+<tr><th>Metric</th><th>Description</th><th>Good Value</th><th>Banking Use</th></tr>
+<tr><td>Accuracy</td><td>Overall correct predictions</td><td>&gt; 85%</td><td>General model performance</td></tr>
+<tr><td>Precision</td><td>True positives / predicted positives</td><td>&gt; 80%</td><td>Minimize false alarms</td></tr>
+<tr><td>Recall</td><td>True positives / actual positives</td><td>&gt; 75%</td><td>Catch all churners</td></tr>
+<tr><td>F1-Score</td><td>Harmonic mean of precision & recall</td><td>&gt; 80%</td><td>Balanced performance</td></tr>
+<tr><td>AUC-ROC</td><td>Area under ROC curve</td><td>&gt; 0.85</td><td>Model discrimination ability</td></tr>
+</table>
+
+<h2 style="color: #333;">Training Job Configuration</h2>
+<div style="color: #666; font-style: italic; padding: 15px; background: #f0f8ff; border-radius: 8px; margin: 15px 0; border-left: 4px solid #0066cc;">💡 Complete training code available in Lab 2 Jupyter notebook</div>
+
+<div class="warning-box">
+<span class="icon">⚠️</span>
+<div>
+<strong>Training Best Practices:</strong> Start with default hyperparameters, then tune. Use spot instances for cost savings. Monitor training metrics in CloudWatch. Save model artifacts to S3 with versioning enabled.
+</div>
+</div>
+
+<div class="success-box">
+<span class="icon">🎯</span>
+<div>
+<strong>SecureBank Results:</strong> XGBoost churn model achieves 92% accuracy, identifying 85% of at-risk customers 90 days before churn, enabling proactive retention campaigns.
+</div>
+</div>
+<!-- Slide Footer -->
+<div class="slide-footer">
+<strong>© 2024 Great Learning. All Rights Reserved.</strong> | AWS GenAI Banking Workshop - Day 5 | Proprietary content - Unauthorized use prohibited
+</div>
+</div>
+
+<!-- SLIDE 5: Module 3 - Model Deployment & Endpoints -->
+<div class="slide">
+<!-- Great Learning Header -->
+<div class="slide-header">
+<div class="gl-logo">
+<svg height="40" viewbox="0 0 257 80" width="150" xmlns="http://www.w3.org/2000/svg">
+<g fill="none" fill-rule="evenodd">
+<path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"></path>
+<path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"></path>
+<path d="M47.307 61.583l10.626-13.099v-18.90H35.359L26.75 41.022h20.556z" fill="#0066cc"></path>
+<text fill="#0066cc" font-family="Arial, sans-serif" font-size="20" font-weight="bold" x="90" y="35">Great Learning</text>
+<text fill="#666" font-family="Arial, sans-serif" font-size="10" x="90" y="50">Excellence in Education</text>
+</g>
+</svg>
+</div>
+<div class="gl-badge">AWS GenAI Banking Workshop</div>
+</div>
+<span class="module-badge">Module 3</span>
+<span class="time-badge">60 Minutes</span>
+<h1 style="color: #333;">🚀 Model Deployment & Endpoints</h1>
+<p class="subtitle">Real-time ML Inference for Banking Applications</p>
+
+<h2 style="color: #333;">Deployment Options</h2>
+<div class="grid-2">
+<div class="card aws">
+<h4 style="color: #333;">⚡ Real-time Inference</h4>
+<ul>
+<li style="color: #333;"><strong>Use Case:</strong> Low-latency predictions for live traffic</li>
+<li style="color: #333;"><strong>Endpoint:</strong> Persistent HTTPS endpoint</li>
+<li style="color: #333;"><strong>Response Time:</strong> Sub-second latency</li>
+<li style="color: #333;"><strong>Auto-scaling:</strong> Handle variable load</li>
+<li style="color: #333;"><strong>Banking Example:</strong> Fraud detection, credit scoring</li>
+</ul>
+</div>
+<div class="card blue">
+<h4 style="color: #333;">📦 Batch Transform</h4>
+<ul>
+<li style="color: #333;"><strong>Use Case:</strong> Process large datasets offline</li>
+<li style="color: #333;"><strong>Cost-effective:</strong> No persistent endpoint</li>
+<li style="color: #333;"><strong>Scalability:</strong> Process millions of records</li>
+<li style="color: #333;"><strong>Scheduling:</strong> Run on-demand or scheduled</li>
+<li style="color: #333;"><strong>Banking Example:</strong> Monthly churn predictions</li>
+</ul>
+</div>
+</div>
+
+<h2 style="color: #333;">SecureBank Inference Architecture</h2>
+<div class="arch-container">
+<div style="text-align: center; margin-bottom: 30px;">
+<svg height="500" viewbox="0 0 900 500" width="900" xmlns="http://www.w3.org/2000/svg">
+<!-- Background -->
+<rect fill="#f8f9fa" height="500" rx="10" stroke="#0066cc" stroke-width="2" width="900"></rect>
+<!-- Title -->
+<text fill="#001a33" font-size="18" font-weight="bold" text-anchor="middle" x="450" y="30">SecureBank Real-time ML Inference Architecture</text>
+
+<!-- Client Layer -->
+<rect fill="#e6f7ff" height="80" rx="8" stroke="#007bff" stroke-width="2" width="800" x="50" y="60"></rect>
+<text fill="#007bff" font-size="14" font-weight="bold" x="70" y="85">Client Applications</text>
+<!-- Web App -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#007bff" stroke-width="1" width="120" x="80" y="100"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="140" y="120">Web Application</text>
+<!-- Mobile App -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#007bff" stroke-width="1" width="120" x="220" y="100"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="280" y="120">Mobile App</text>
+<!-- Call Center -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#007bff" stroke-width="1" width="120" x="360" y="100"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="420" y="120">Call Center</text>
+<!-- Batch Jobs -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#007bff" stroke-width="1" width="120" x="500" y="100"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="560" y="120">Batch Jobs</text>
+<!-- CRM System -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#007bff" stroke-width="1" width="120" x="640" y="100"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="700" y="120">CRM System</text>
+
+<!-- API Layer -->
+<rect fill="#fff8f0" height="80" rx="8" stroke="#ff9900" stroke-width="2" width="800" x="50" y="160"></rect>
+<text fill="#ff9900" font-size="14" font-weight="bold" x="70" y="185">API Gateway & Processing</text>
+<!-- API Gateway -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#ff9900" stroke-width="1" width="150" x="80" y="200"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="155" y="220">API Gateway</text>
+<!-- Lambda Pre-process -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#ff9900" stroke-width="1" width="150" x="250" y="200"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="325" y="220">Lambda Pre-process</text>
+<!-- DynamoDB Cache -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#ff9900" stroke-width="1" width="150" x="420" y="200"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="495" y="220">DynamoDB Cache</text>
+<!-- Lambda Post-process -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#ff9900" stroke-width="1" width="150" x="590" y="200"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="665" y="220">Lambda Post-process</text>
+
+<!-- SageMaker Layer -->
+<rect fill="#f0fff0" height="100" rx="8" stroke="#28a745" stroke-width="2" width="800" x="50" y="260"></rect>
+<text fill="#28a745" font-size="14" font-weight="bold" x="70" y="285">SageMaker Endpoints</text>
+<!-- Churn Endpoint -->
+<rect fill="#ffffff" height="60" rx="5" stroke="#28a745" stroke-width="1" width="150" x="80" y="290"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="155" y="310">Churn Prediction</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="155" y="325">ml.m5.xlarge</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="155" y="338">Auto-scale: 1-5</text>
+<!-- Fraud Endpoint -->
+<rect fill="#ffffff" height="60" rx="5" stroke="#28a745" stroke-width="1" width="150" x="250" y="290"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="325" y="310">Fraud Detection</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="325" y="325">ml.c5.2xlarge</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="325" y="338">Auto-scale: 2-10</text>
+<!-- Credit Risk Endpoint -->
+<rect fill="#ffffff" height="60" rx="5" stroke="#28a745" stroke-width="1" width="150" x="420" y="290"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="495" y="310">Credit Risk</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="495" y="325">ml.m5.large</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="495" y="338">Auto-scale: 1-3</text>
+<!-- Multi-model Endpoint -->
+<rect fill="#ffffff" height="60" rx="5" stroke="#28a745" stroke-width="1" width="150" x="590" y="290"></rect>
+<text fill="#001a33" font-size="11" font-weight="bold" text-anchor="middle" x="665" y="310">Multi-model</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="665" y="325">5 Models</text>
+<text fill="#666" font-size="9" text-anchor="middle" x="665" y="338">ml.m5.xlarge</text>
+
+<!-- Storage Layer -->
+<rect fill="#f8f0ff" height="80" rx="8" stroke="#6f42c1" stroke-width="2" width="800" x="50" y="380"></rect>
+<text fill="#6f42c1" font-size="14" font-weight="bold" x="70" y="405">Data Storage & Logging</text>
+<!-- S3 Predictions -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#6f42c1" stroke-width="1" width="150" x="80" y="420"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="155" y="440">S3 Predictions</text>
+<!-- CloudWatch Logs -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#6f42c1" stroke-width="1" width="150" x="250" y="420"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="325" y="440">CloudWatch Logs</text>
+<!-- Model Monitor -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#6f42c1" stroke-width="1" width="150" x="420" y="420"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="495" y="440">Model Monitor</text>
+<!-- CloudWatch Metrics -->
+<rect fill="#ffffff" height="30" rx="5" stroke="#6f42c1" stroke-width="1" width="150" x="590" y="420"></rect>
+<text fill="#001a33" font-size="10" font-weight="bold" text-anchor="middle" x="665" y="440">CloudWatch Metrics</text>
+
+<!-- Connection Lines -->
+<line stroke="#007bff" stroke-width="2" x1="140" x2="140" y1="130" y2="160"></line>
+<line stroke="#007bff" stroke-width="2" x1="280" x2="280" y1="130" y2="160"></line>
+<line stroke="#007bff" stroke-width="2" x1="420" x2="420" y1="130" y2="160"></line>
+<line stroke="#007bff" stroke-width="2" x1="560" x2="560" y1="130" y2="160"></line>
+<line stroke="#007bff" stroke-width="2" x1="700" x2="700" y1="130" y2="160"></line>
+<line stroke="#ff9900" stroke-width="2" x1="155" x2="155" y1="230" y2="260"></line>
+<line stroke="#ff9900" stroke-width="2" x1="325" x2="325" y1="230" y2="260"></line>
+<line stroke="#ff9900" stroke-width="2" x1="495" x2="495" y1="230" y2="260"></line>
+<line stroke="#ff9900" stroke-width="2" x1="665" x2="665" y1="230" y2="260"></line>
+<line stroke="#28a745" stroke-width="2" x1="155" x2="155" y1="350" y2="380"></line>
+<line stroke="#28a745" stroke-width="2" x1="325" x2="325" y1="350" y2="380"></line>
+<line stroke="#28a745" stroke-width="2" x1="495" x2="495" y1="350" y2="380"></line>
+<line stroke="#28a745" stroke-width="2" x1="665" x2="665" y1="350" y2="380"></line>
+</svg>
+</div>
+</div>
+
+<h2 style="color: #333;">Endpoint Deployment Workflow</h2>
+<div class="flow-container">
+<div class="flow-step">
+<div class="flow-number">1</div>
+<div class="flow-content">
+<div class="flow-title">Create Model</div>
+<div class="flow-description">Reference trained model artifacts in S3 and container image</div>
+</div>
+</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">
+<div class="flow-number">2</div>
+<div class="flow-content">
+<div class="flow-title">Create Endpoint Config</div>
+<div class="flow-description">Specify instance type, count, and model variants</div>
+</div>
+</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">
+<div class="flow-number">3</div>
+<div class="flow-content">
+<div class="flow-title">Create Endpoint</div>
+<div class="flow-description">Deploy model to production endpoint (5-10 minutes)</div>
+</div>
+</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">
+<div class="flow-number">4</div>
+<div class="flow-content">
+<div class="flow-title">Invoke Endpoint</div>
+<div class="flow-description">Send prediction requests via HTTPS API</div>
+</div>
+</div>
+</div>
+
+<h2 style="color: #333;">Instance Types for Inference</h2>
+<table>
+<tr><th>Instance Type</th><th>vCPUs</th><th>Memory</th><th>Cost/Hour</th><th>Best For</th></tr>
+<tr><td>ml.t2.medium</td><td>2</td><td>4 GB</td><td>$0.065</td><td>Development, testing</td></tr>
+<tr><td>ml.m5.xlarge</td><td>4</td><td>16 GB</td><td>$0.269</td><td>Production, moderate traffic</td></tr>
+<tr><td>ml.c5.2xlarge</td><td>8</td><td>16 GB</td><td>$0.425</td><td>CPU-intensive models</td></tr>
+<tr><td>ml.p3.2xlarge</td><td>8</td><td>61 GB</td><td>$3.825</td><td>GPU-accelerated inference</td></tr>
+<tr><td>ml.inf1.xlarge</td><td>4</td><td>8 GB</td><td>$0.362</td><td>Cost-optimized inference</td></tr>
+</table>
+
+<h2 style="color: #333;">Endpoint Auto-scaling</h2>
+<div class="grid-2">
+<div class="card green">
+<h4 style="color: #333;">📈 Scaling Policies</h4>
+<ul>
+<li style="color: #333;"><strong>Target Tracking:</strong> Scale based on invocations per instance</li>
+<li style="color: #333;"><strong>Min/Max Instances:</strong> Set capacity bounds</li>
+<li style="color: #333;"><strong>Scale-out:</strong> Add instances when load increases</li>
+<li style="color: #333;"><strong>Scale-in:</strong> Remove instances when load decreases</li>
+<li style="color: #333;"><strong>Cool-down Period:</strong> Prevent rapid scaling</li>
+</ul>
+</div>
+<div class="card orange">
+<h4 style="color: #333;">🎯 Banking Patterns</h4>
+<ul>
+<li style="color: #333;"><strong>Business Hours:</strong> Higher traffic 9 AM - 5 PM</li>
+<li style="color: #333;"><strong>Month-end:</strong> Spike in loan applications</li>
+<li style="color: #333;"><strong>Fraud Detection:</strong> Constant real-time load</li>
+<li style="color: #333;"><strong>Batch Processing:</strong> Overnight churn predictions</li>
+</ul>
+</div>
+</div>
+
+<h2 style="color: #333;">Invoking Endpoints</h2>
+<div style="color: #666; font-style: italic; padding: 15px; background: #f0f8ff; border-radius: 8px; margin: 15px 0; border-left: 4px solid #0066cc;">💡 Complete deployment and inference code available in Lab 3 Jupyter notebook</div>
+
+<h2 style="color: #333;">Banking Integration Patterns</h2>
+<div class="banking-scenario">
+<h4 style="color: #ffffff;">🏦 SecureBank ML Integration Architecture</h4>
+<div class="grid-2" style="margin-top: 15px; color: #ffffff;">
+<div style="color: #ffffff;">
+<p><strong>Real-time Integration:</strong></p>
+<ul>
+<li style="color: #ffffff;"><strong>API Gateway:</strong> Expose ML endpoint to applications</li>
+<li style="color: #ffffff;"><strong>Lambda Function:</strong> Pre/post-processing logic</li>
+<li style="color: #ffffff;"><strong>DynamoDB:</strong> Cache predictions for performance</li>
+<li style="color: #ffffff;"><strong>CloudWatch:</strong> Monitor latency and errors</li>
+</ul>
+</div>
+<div style="color: #ffffff;">
+<p><strong>Batch Integration:</strong></p>
+<ul>
+<li style="color: #ffffff;"><strong>S3 Trigger:</strong> Automatic batch job initiation</li>
+<li style="color: #ffffff;"><strong>Step Functions:</strong> Orchestrate ML workflow</li>
+<li style="color: #ffffff;"><strong>Athena:</strong> Query prediction results</li>
+<li style="color: #ffffff;"><strong>SNS:</strong> Notify stakeholders on completion</li>
+</ul>
+</div>
+</div>
+</div>
+
+<h2 style="color: #333;">Monitoring & Troubleshooting</h2>
+<div class="grid-3">
+<div class="card purple">
+<h4 style="color: #333;">📊 Key Metrics</h4>
+<ul>
+<li style="color: #333;"><strong>Invocations:</strong> Request count</li>
+<li style="color: #333;"><strong>ModelLatency:</strong> Inference time</li>
+<li style="color: #333;"><strong>Invocation4XXErrors:</strong> Client errors</li>
+<li style="color: #333;"><strong>Invocation5XXErrors:</strong> Server errors</li>
+</ul>
+</div>
+<div class="card aws">
+<h4 style="color: #333;">🔍 Common Issues</h4>
+<ul>
+<li style="color: #333;"><strong>High Latency:</strong> Upgrade instance type</li>
+<li style="color: #333;"><strong>Throttling:</strong> Increase instance count</li>
+<li style="color: #333;"><strong>4XX Errors:</strong> Check input format</li>
+<li style="color: #333;"><strong>5XX Errors:</strong> Review model code</li>
+</ul>
+</div>
+<div class="card blue">
+<h4 style="color: #333;">💰 Cost Optimization</h4>
+<ul>
+<li style="color: #333;"><strong>Right-sizing:</strong> Match instance to workload</li>
+<li style="color: #333;"><strong>Auto-scaling:</strong> Scale down during low traffic</li>
+<li style="color: #333;"><strong>Multi-model:</strong> Host multiple models per endpoint</li>
+<li style="color: #333;"><strong>Serverless:</strong> Use Lambda for sporadic traffic</li>
+</ul>
+</div>
+</div>
+
+<div class="warning-box">
+<span class="icon">⚠️</span>
+<div>
+<strong>Production Best Practices:</strong> Always test endpoints in staging first. Implement A/B testing for model updates. Monitor prediction quality and data drift. Set up CloudWatch alarms for errors and latency.
+</div>
+</div>
+
+<div class="success-box">
+<span class="icon">🎯</span>
+<div>
+<strong>SecureBank Production:</strong> Real-time churn prediction endpoint processes 50,000 daily predictions with 150ms average latency, enabling instant customer retention interventions.
+</div>
+</div>
+<!-- Slide Footer -->
+<div class="slide-footer">
+<strong>© 2024 Great Learning. All Rights Reserved.</strong> | AWS GenAI Banking Workshop - Day 5 | Proprietary content - Unauthorized use prohibited
+</div>
+</div>
+
+<!-- SLIDE 6: Module 4 - MLOps & Monitoring -->
+<div class="slide">
+<!-- Great Learning Header -->
+<div class="slide-header">
+<div class="gl-logo">
+<svg height="40" viewbox="0 0 257 80" width="150" xmlns="http://www.w3.org/2000/svg">
+<g fill="none" fill-rule="evenodd">
+<path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"></path>
+<path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"></path>
+<path d="M47.307 61.583l10.626-13.099v-18.90H35.359L26.75 41.022h20.556z" fill="#0066cc"></path>
+<text fill="#0066cc" font-family="Arial, sans-serif" font-size="20" font-weight="bold" x="90" y="35">Great Learning</text>
+<text fill="#666" font-family="Arial, sans-serif" font-size="10" x="90" y="50">Excellence in Education</text>
+</g>
+</svg>
+</div>
+<div class="gl-badge">AWS GenAI Banking Workshop</div>
+</div>
+<span class="module-badge">Module 4</span>
+<span class="time-badge">30 Minutes</span>
+<h1 style="color: #333;">🔄 MLOps & Model Monitoring</h1>
+<p class="subtitle">Production ML Best Practices for Banking</p>
+
+<h2 style="color: #333;">What is MLOps?</h2>
+<div class="banking-scenario">
+<h4 style="color: #ffffff;">🏦 SecureBank MLOps Challenges</h4>
+<div class="grid-2" style="margin-top: 15px; color: #ffffff;">
+<div style="color: #ffffff;">
+<p><strong>Without MLOps:</strong></p>
+<ul>
+<li style="color: #ffffff;"><strong>Model Drift:</strong> Accuracy degrades over time</li>
+<li style="color: #ffffff;"><strong>Manual Updates:</strong> Slow model retraining</li>
+<li style="color: #ffffff;"><strong>No Monitoring:</strong> Silent failures in production</li>
+<li style="color: #ffffff;"><strong>Compliance Risk:</strong> Lack of model auditability</li>
+</ul>
+</div>
+<div style="color: #ffffff;">
+<p><strong>With MLOps:</strong></p>
+<ul>
+<li style="color: #ffffff;"><strong>Automated Monitoring:</strong> Detect drift early</li>
+<li style="color: #ffffff;"><strong>CI/CD Pipelines:</strong> Fast model updates</li>
+<li style="color: #ffffff;"><strong>Model Registry:</strong> Version control for models</li>
+<li style="color: #ffffff;"><strong>Audit Trails:</strong> Full model lineage</li>
+</ul>
+</div>
+</div>
+</div>
+
+<h2 style="color: #333;">SageMaker Model Monitor</h2>
+<div class="grid-3">
+<div class="card aws">
+<h4 style="color: #333;">📊 Data Quality</h4>
+<ul>
+<li style="color: #333;"><strong>Schema Validation:</strong> Check feature types</li>
+<li style="color: #333;"><strong>Missing Values:</strong> Detect incomplete data</li>
+<li style="color: #333;"><strong>Range Checks:</strong> Validate feature bounds</li>
+<li style="color: #333;"><strong>Alerts:</strong> Notify on quality issues</li>
+</ul>
+</div>
+<div class="card blue">
+<h4 style="color: #333;">🎯 Model Quality</h4>
+<ul>
+<li style="color: #333;"><strong>Accuracy Tracking:</strong> Monitor prediction quality</li>
+<li style="color: #333;"><strong>Ground Truth:</strong> Compare predictions to actuals</li>
+<li style="color: #333;"><strong>Drift Detection:</strong> Statistical tests for drift</li>
+<li style="color: #333;"><strong>Retraining Triggers:</strong> Automatic alerts</li>
+</ul>
+</div>
+<div class="card green">
+<h4 style="color: #333;">⚖️ Bias Detection</h4>
+<ul>
+<li style="color: #333;"><strong>Fairness Metrics:</strong> Check for bias</li>
+<li style="color: #333;"><strong>Protected Attributes:</strong> Age, gender, race</li>
+<li style="color: #333;"><strong>Compliance:</strong> Regulatory requirements</li>
+<li style="color: #333;"><strong>Remediation:</strong> Bias mitigation strategies</li>
+</ul>
+</div>
+</div>
+
+<h2 style="color: #333;">Model Retraining Strategy</h2>
+<div class="flow-container">
+<div class="flow-step">
+<div class="flow-number">1</div>
+<div class="flow-content">
+<div class="flow-title">Monitor Performance</div>
+<div class="flow-description">Track accuracy, latency, and data drift metrics</div>
+</div>
+</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">
+<div class="flow-number">2</div>
+<div class="flow-content">
+<div class="flow-title">Detect Degradation</div>
+<div class="flow-description">Accuracy drops below threshold or drift detected</div>
+</div>
+</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">
+<div class="flow-number">3</div>
+<div class="flow-content">
+<div class="flow-title">Retrain Model</div>
+<div class="flow-description">Launch training job with updated data</div>
+</div>
+</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">
+<div class="flow-number">4</div>
+<div class="flow-content">
+<div class="flow-title">A/B Test & Deploy</div>
+<div class="flow-description">Compare new model, then promote to production</div>
+</div>
+</div>
+</div>
+
+<h2 style="color: #333;">Banking MLOps Best Practices</h2>
+<div class="grid-2">
+<div class="card orange">
+<h4 style="color: #333;">🔐 Security & Compliance</h4>
+<ul>
+<li style="color: #333;"><strong>Data Encryption:</strong> At rest and in transit</li>
+<li style="color: #333;"><strong>Access Control:</strong> IAM roles and policies</li>
+<li style="color: #333;"><strong>Audit Logging:</strong> CloudTrail for all actions</li>
+<li style="color: #333;"><strong>Model Explainability:</strong> SHAP values for transparency</li>
+<li style="color: #333;"><strong>Regulatory Compliance:</strong> GDPR, CCPA, banking regulations</li>
+</ul>
+</div>
+<div class="card purple">
+<h4 style="color: #333;">📈 Performance Optimization</h4>
+<ul>
+<li style="color: #333;"><strong>Model Compression:</strong> Reduce model size</li>
+<li style="color: #333;"><strong>Batch Predictions:</strong> Process multiple requests</li>
+<li style="color: #333;"><strong>Caching:</strong> Store frequent predictions</li>
+<li style="color: #333;"><strong>Multi-model Endpoints:</strong> Share infrastructure</li>
+<li style="color: #333;"><strong>Spot Instances:</strong> Cost-effective training</li>
+</ul>
+</div>
+</div>
+
+<h2 style="color: #333;">Model Versioning & Registry</h2>
+<table>
+<tr><th>Version</th><th>Accuracy</th><th>Training Date</th><th>Status</th><th>Notes</th></tr>
+<tr><td>v1.0</td><td>88%</td><td>2024-01-15</td><td>Retired</td><td>Initial production model</td></tr>
+<tr><td>v1.1</td><td>90%</td><td>2024-02-20</td><td>Retired</td><td>Added new features</td></tr>
+<tr><td>v1.2</td><td>92%</td><td>2024-03-10</td><td>Production</td><td>Hyperparameter tuning</td></tr>
+<tr><td>v1.3</td><td>93%</td><td>2024-04-05</td><td>Staging</td><td>A/B testing in progress</td></tr>
+<tr><td>v2.0</td><td>TBD</td><td>In Development</td><td>Development</td><td>Deep learning approach</td></tr>
+</table>
+
+<h2 style="color: #333;">Monitoring Dashboard</h2>
+<div style="color: #666; font-style: italic; padding: 15px; background: #f0f8ff; border-radius: 8px; margin: 15px 0; border-left: 4px solid #0066cc;">💡 CloudWatch dashboards and alarms configured in Lab 3</div>
+
+<h2 style="color: #333;">SecureBank ML Lifecycle</h2>
+<div class="banking-scenario">
+<h4 style="color: #ffffff;">🏦 End-to-End ML Pipeline</h4>
+<div style="margin-top: 15px; color: #ffffff;">
+<p><strong>1. Data Collection:</strong> Customer transactions, demographics, behavior → S3</p>
+<p><strong>2. Feature Engineering:</strong> SageMaker Processing jobs for data transformation</p>
+<p><strong>3. Model Training:</strong> XGBoost training with hyperparameter tuning</p>
+<p><strong>4. Model Evaluation:</strong> Validate on holdout set, check bias metrics</p>
+<p><strong>5. Model Deployment:</strong> Deploy to staging endpoint for A/B testing</p>
+<p><strong>6. Production Rollout:</strong> Gradual traffic shift to new model</p>
+<p><strong>7. Monitoring:</strong> Track accuracy, latency, drift, and business KPIs</p>
+<p><strong>8. Retraining:</strong> Automated monthly retraining with latest data</p>
+</div>
+</div>
+
+<div class="warning-box">
+<span class="icon">⚠️</span>
+<div>
+<strong>Regulatory Compliance:</strong> Banking ML models must be explainable, auditable, and free from bias. Maintain complete model lineage, document all decisions, and implement human oversight for high-stakes predictions.
+</div>
+</div>
+
+<div class="success-box">
+<span class="icon">🎯</span>
+<div>
+<strong>SecureBank MLOps Maturity:</strong> Automated ML pipeline reduces model deployment time from 6 weeks to 3 days, with continuous monitoring ensuring 92%+ accuracy maintained in production.
+</div>
+</div>
+<!-- Slide Footer -->
+<div class="slide-footer">
+<strong>© 2024 Great Learning. All Rights Reserved.</strong> | AWS GenAI Banking Workshop - Day 5 | Proprietary content - Unauthorized use prohibited
+</div>
+</div>
+
+<!-- SLIDE 7: Day 5 Summary & Next Steps -->
+<div class="slide">
+<!-- Great Learning Header -->
+<div class="slide-header">
+<div class="gl-logo">
+<svg height="40" viewbox="0 0 257 80" width="150" xmlns="http://www.w3.org/2000/svg">
+<g fill="none" fill-rule="evenodd">
+<path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"></path>
+<path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"></path>
+<path d="M47.307 61.583l10.626-13.099v-18.90H35.359L26.75 41.022h20.556z" fill="#0066cc"></path>
+<text fill="#0066cc" font-family="Arial, sans-serif" font-size="20" font-weight="bold" x="90" y="35">Great Learning</text>
+<text fill="#666" font-family="Arial, sans-serif" font-size="10" x="90" y="50">Excellence in Education</text>
+</g>
+</svg>
+</div>
+<div class="gl-badge">AWS GenAI Banking Workshop</div>
+</div>
+<h1 style="color: #333;">🎯 Day 5 Summary &amp; Key Takeaways</h1>
+<p class="subtitle">SageMaker ML Training &amp; Deployment Mastery Achieved</p>
+<h2 style="color: #333;">What We Accomplished Today</h2>
+<div class="grid-2">
+<div class="card green">
+<h4 style="color: #333;">✅ Technical Skills Mastered</h4>
+<ul>
+<li style="color: #333;"><strong>SageMaker Architecture:</strong> Components, workflow, S3 integration</li>
+<li style="color: #333;"><strong>Model Training:</strong> XGBoost, hyperparameters, training jobs</li>
+<li style="color: #333;"><strong>Model Deployment:</strong> Real-time endpoints and batch inference</li>
+<li style="color: #333;"><strong>MLOps Practices:</strong> Model monitoring and lifecycle management</li>
+<li style="color: #333;"><strong>Banking ML:</strong> Churn prediction and fraud detection models</li>
+</ul>
+</div>
+<div class="card blue">
+<h4 style="color: #333;">🏦 Banking Applications</h4>
+<ul>
+<li style="color: #333;"><strong>Churn Prediction:</strong> 92% accuracy in customer retention</li>
+<li style="color: #333;"><strong>Fraud Detection:</strong> Real-time transaction scoring</li>
+<li style="color: #333;"><strong>Risk Assessment:</strong> Automated credit scoring models</li>
+<li style="color: #333;"><strong>Cost Optimization:</strong> 70% reduction in ML infrastructure costs</li>
+<li style="color: #333;"><strong>Scalability:</strong> Handle millions of predictions per day</li>
+</ul>
+</div>
+</div>
+<h2 style="color: #333;">SecureBank ML Transformation Progress</h2>
+<div class="arch-container">
+<div style="text-align: center; margin-bottom: 20px;">
+<h3 style="color: #0066cc; margin-bottom: 15px;">3-Day Journey: From Manual to Automated Banking Operations</h3>
+</div>
+<div class="pipeline">
+<div class="pipeline-step orange">
+<strong>Day 1</strong>
+<small>AWS Foundations</small>
+</div>
+<div class="pipeline-step aws">
+<strong>Day 2</strong>
+<small>VPC &amp; Networking</small>
+</div>
+<div class="pipeline-step blue">
+<strong>Day 5</strong>
+<small>Operations &amp; Monitoring</small>
+</div>
+<div class="pipeline-step green">
+<strong>Next</strong>
+<small>Advanced Services</small>
+</div>
+</div>
+<div class="grid-3" style="margin-top: 30px;">
+<div class="card aws">
+<h4 style="color: #333;">📊 Operational Metrics</h4>
+<ul>
+<li style="color: #333;"><strong>Uptime:</strong> 99.99% achieved</li>
+<li style="color: #333;"><strong>Response Time:</strong> &lt; 200ms average</li>
+<li style="color: #333;"><strong>Error Rate:</strong> &lt; 0.1% for critical ops</li>
+<li style="color: #333;"><strong>Automation:</strong> 85% of tasks automated</li>
+</ul>
+</div>
+<div class="card orange">
+<h4 style="color: #333;">💰 Business Impact</h4>
+<ul>
+<li style="color: #333;"><strong>Cost Reduction:</strong> 40% operational savings</li>
+<li style="color: #333;"><strong>Efficiency:</strong> 80% faster deployments</li>
+<li style="color: #333;"><strong>Customer Satisfaction:</strong> 95% positive feedback</li>
+<li style="color: #333;"><strong>Compliance:</strong> 100% regulatory adherence</li>
+</ul>
+</div>
+<div class="card green">
+<h4 style="color: #333;">🔧 Technical Capabilities</h4>
+<ul>
+<li style="color: #333;"><strong>Monitoring:</strong> Real-time infrastructure visibility</li>
+<li style="color: #333;"><strong>Alerting:</strong> Proactive issue detection</li>
+<li style="color: #333;"><strong>Automation:</strong> Self-healing systems</li>
+<li style="color: #333;"><strong>Scaling:</strong> Dynamic resource management</li>
+</ul>
+</div>
+</div>
+</div>
+<h2 style="color: #333;">Hands-on Labs Completed</h2>
+<table>
+<tr><th>Lab</th><th>Objective</th><th>Skills Gained</th><th>Banking Application</th></tr>
+<tr>
+<td><span class="highlight green">Lab 1: SageMaker Setup</span></td>
+<td>Infrastructure deployment and configuration</td>
+<td>CloudFormation, Notebook setup, IAM roles</td>
+<td>ML platform foundation for SecureBank</td>
+</tr>
+<tr>
+<td><span class="highlight blue">Lab 2: Model Training</span></td>
+<td>Train XGBoost classification model</td>
+<td>Data preprocessing, training jobs, evaluation</td>
+<td>Customer churn prediction model</td>
+</tr>
+<tr>
+<td><span class="highlight orange">Lab 3: Model Deployment</span></td>
+<td>Deploy model to production endpoint</td>
+<td>Endpoint configuration, inference testing</td>
+<td>Document processing automation</td>
+</tr>
+</table>
+<h2 style="color: #333;">Key Learning Outcomes</h2>
+<div class="flow-container">
+<div class="flow-step">
+<div class="flow-number">1</div>
+<div class="flow-content">
+<div class="flow-title">ML Platform Mastery</div>
+<div class="flow-description">Master SageMaker architecture, components, and ML workflow for building production-ready banking models</div>
+</div>
+</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">
+<div class="flow-number">2</div>
+<div class="flow-content">
+<div class="flow-title">Model Training Excellence</div>
+<div class="flow-description">Train and evaluate XGBoost models with hyperparameter tuning for customer churn prediction</div>
+</div>
+</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">
+<div class="flow-number">3</div>
+<div class="flow-content">
+<div class="flow-title">Deployment Proficiency</div>
+<div class="flow-description">Deploy models to real-time endpoints and implement batch inference for banking predictions</div>
+</div>
+</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">
+<div class="flow-number">4</div>
+<div class="flow-content">
+<div class="flow-title">Banking Integration</div>
+<div class="flow-description">Apply all skills to real-world SecureBank scenarios with compliance and security considerations</div>
+</div>
+</div>
+</div>
+<h2 style="color: #333;">Next Steps: Day 4 Preview</h2>
+<div class="banking-scenario">
+<h4 style="color: #ffffff;">🚀 Coming Up: Advanced AWS Services for Banking</h4>
+<div class="grid-2" style="margin-top: 15px; color: #ffffff;">
+<div style="color: #ffffff;">
+<p><strong>Day 4 Topics:</strong></p>
+<ul>
+<li style="color: #ffffff;"><strong>Lambda Functions:</strong> Serverless banking operations</li>
+<li style="color: #ffffff;"><strong>API Gateway:</strong> Secure banking API management</li>
+<li style="color: #ffffff;"><strong>DynamoDB:</strong> NoSQL for real-time banking data</li>
+<li style="color: #ffffff;"><strong>SQS/SNS:</strong> Messaging for banking workflows</li>
+<li style="color: #ffffff;"><strong>Step Functions:</strong> Loan processing orchestration</li>
+</ul>
+</div>
+<div style="color: #ffffff;">
+<p><strong>Advanced Banking Use Cases:</strong></p>
+<ul>
+<li style="color: #ffffff;"><strong>Serverless Loan Processing:</strong> Event-driven workflows</li>
+<li style="color: #ffffff;"><strong>Real-time Fraud Detection:</strong> ML-powered monitoring</li>
+<li style="color: #ffffff;"><strong>Customer Notification System:</strong> Multi-channel messaging</li>
+<li style="color: #ffffff;"><strong>Document Processing Pipeline:</strong> Automated KYC workflows</li>
+<li style="color: #ffffff;"><strong>Compliance Automation:</strong> Regulatory reporting</li>
+</ul>
+</div>
+</div>
+</div>
+<h2 style="color: #333;">Recommended Actions</h2>
+<div class="grid-3">
+<div class="card green">
+<h4 style="color: #333;">📚 Continue Learning</h4>
+<ul>
+<li style="color: #333;"><strong>Practice:</strong> Implement learned concepts in your environment</li>
+<li style="color: #333;"><strong>Explore:</strong> AWS documentation and best practices</li>
+<li style="color: #333;"><strong>Experiment:</strong> Try advanced CloudWatch features</li>
+<li style="color: #333;"><strong>Automate:</strong> Build more boto3 scripts</li>
+</ul>
+</div>
+<div class="card blue">
+<h4 style="color: #333;">🔧 Hands-on Practice</h4>
+<ul>
+<li style="color: #333;"><strong>Lab Environment:</strong> Set up personal AWS account</li>
+<li style="color: #333;"><strong>Monitoring:</strong> Create custom dashboards</li>
+<li style="color: #333;"><strong>Scripting:</strong> Develop automation tools</li>
+<li style="color: #333;"><strong>Testing:</strong> Practice troubleshooting scenarios</li>
+</ul>
+</div>
+<div class="card purple">
+<h4 style="color: #333;">🏦 Banking Applications</h4>
+<ul>
+<li style="color: #333;"><strong>Use Cases:</strong> Identify automation opportunities</li>
+<li style="color: #333;"><strong>Compliance:</strong> Review regulatory requirements</li>
+<li style="color: #333;"><strong>Security:</strong> Implement best practices</li>
+<li style="color: #333;"><strong>Integration:</strong> Plan banking system modernization</li>
+</ul>
+</div>
+</div>
+<div class="success-box">
+<span class="icon">🎉</span>
+<div>
+<strong>Congratulations!</strong> You've successfully completed Day 5 of the AWS GenAI Banking Workshop. You now have the operational skills to manage, monitor, and automate AWS infrastructure for banking applications with confidence and expertise.
+        </div>
+</div>
+<div style="text-align: center; margin-top: 40px;">
+<h2 style="color: #0066cc;">Thank You!</h2>
+<p style="font-size: 1.2em; color: #666; margin: 20px 0;">Questions &amp; Discussion</p>
+<div style="margin-top: 30px;">
+<span class="highlight green">Day 4 Preview</span>
+<span class="highlight blue">Advanced Services</span>
+<span class="highlight orange">Serverless Banking</span>
+<span class="highlight purple">AI/ML Integration</span>
+</div>
+</div>
+<!-- Slide Footer -->
+<div class="slide-footer">
+<strong>© 2024 Great Learning. All Rights Reserved.</strong> | AWS GenAI Banking Workshop - Day 5 | Proprietary content - Unauthorized use prohibited
+    </div>
+</div>
+</div>
+<!-- Great Learning Footer -->
+<div class="gl-footer">
+<div class="gl-footer-logo">
+<svg height="62" viewbox="0 0 257 80" width="200" xmlns="http://www.w3.org/2000/svg">
+<g fill="none" fill-rule="evenodd">
+<path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"></path>
+<path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"></path>
+<path d="M47.307 61.583l10.626-13.099v-18.90H35.359L26.75 41.022h20.556z" fill="#0066cc"></path>
+<text fill="#0066cc" font-family="Arial, sans-serif" font-size="24" font-weight="bold" x="90" y="35">Great Learning</text>
+<text fill="#666" font-family="Arial, sans-serif" font-size="12" x="90" y="55">Excellence in Education</text>
+</g>
+</svg>
+</div>
+<div class="gl-copyright">
+<h3 style="color: #0066cc; margin-bottom: 15px;">AWS GenAI Banking Workshop - Day 5 Complete</h3>
+<p style="margin-bottom: 10px;"><strong>SageMaker ML Training &amp; Deployment</strong></p>
+<p style="margin-bottom: 15px;">Comprehensive training on machine learning model training, deployment, and MLOps for banking applications</p>
+<p style="font-size: 0.9em; color: #ccc;">
+<strong>© 2024 Great Learning. All Rights Reserved.</strong><br/>
+            This content is proprietary and confidential. Unauthorized reproduction, distribution, or use is strictly prohibited.<br/>
+            For questions or support, contact: <strong>support@greatlearning.in</strong>
+</p>
+</div>
+</div>
+</div></body>
+</html>
