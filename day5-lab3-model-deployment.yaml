@@ -7,10 +7,6 @@ Parameters:
     Type: String
     Default: SecureBank-Day5-Lab3
   
-  ModelDataUrl:
-    Description: S3 URL to model artifacts (model.tar.gz)
-    Type: String
-  
   EndpointInstanceType:
     Description: Instance type for endpoint
     Type: String
@@ -24,6 +20,139 @@ Parameters:
       - ml.c5.xlarge
 
 Resources:
+  # S3 Bucket for Model Artifacts
+  ModelArtifactsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-model-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # Lambda Role for Model Creation
+  ModelCreatorLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3ModelUploadPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub '${ModelArtifactsBucket.Arn}/*'
+                  - !GetAtt ModelArtifactsBucket.Arn
+
+  # Lambda Function to Create Dummy Model
+  ModelCreatorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${EnvironmentName}-model-creator'
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt ModelCreatorLambdaRole.Arn
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import tarfile
+          import io
+          import pickle
+          import cfnresponse
+          
+          s3 = boto3.client('s3')
+          
+          def lambda_handler(event, context):
+              """
+              Create a simple XGBoost model and upload to S3
+              Also handles cleanup on stack deletion
+              """
+              try:
+                  bucket = event['ResourceProperties']['Bucket']
+                  
+                  if event['RequestType'] == 'Delete':
+                      # Empty the bucket on stack deletion
+                      try:
+                          paginator = s3.get_paginator('list_objects_v2')
+                          for page in paginator.paginate(Bucket=bucket):
+                              if 'Contents' in page:
+                                  for obj in page['Contents']:
+                                      s3.delete_object(Bucket=bucket, Key=obj['Key'])
+                          print(f"Emptied bucket {bucket}")
+                      except Exception as e:
+                          print(f"Error emptying bucket: {str(e)}")
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                      return
+                  
+                  key = 'models/model.tar.gz'
+                  
+                  # Create a simple XGBoost model (dummy for demo)
+                  # In production, this would be a trained model
+                  model_data = {
+                      'model_type': 'xgboost',
+                      'version': '1.5',
+                      'features': ['age', 'balance', 'num_products', 'has_credit_card', 'is_active_member'],
+                      'note': 'This is a demo model for endpoint deployment lab'
+                  }
+                  
+                  # Create tar.gz in memory
+                  tar_buffer = io.BytesIO()
+                  with tarfile.open(fileobj=tar_buffer, mode='w:gz') as tar:
+                      # Add model file
+                      model_bytes = pickle.dumps(model_data)
+                      model_info = tarfile.TarInfo(name='xgboost-model')
+                      model_info.size = len(model_bytes)
+                      tar.addfile(model_info, io.BytesIO(model_bytes))
+                  
+                  # Upload to S3
+                  tar_buffer.seek(0)
+                  s3.put_object(
+                      Bucket=bucket,
+                      Key=key,
+                      Body=tar_buffer.getvalue(),
+                      ContentType='application/x-tar'
+                  )
+                  
+                  model_url = f's3://{bucket}/{key}'
+                  
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                      'ModelUrl': model_url
+                  })
+                  
+              except Exception as e:
+                  print(f"Error: {str(e)}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {
+                      'Error': str(e)
+                  })
+
+  # Custom Resource to Create Model
+  DemoModel:
+    Type: Custom::ModelCreator
+    Properties:
+      ServiceToken: !GetAtt ModelCreatorLambda.Arn
+      Bucket: !Ref ModelArtifactsBucket
   # IAM Role for SageMaker Endpoint
   SageMakerEndpointRole:
     Type: AWS::IAM::Role
@@ -46,7 +175,10 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:GetObject
-                Resource: !Sub '${ModelDataUrl}*'
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::*/*'
+                  - !Sub 'arn:aws:s3:::*'
         - PolicyName: CloudWatchLogsPolicy
           PolicyDocument:
             Version: '2012-10-17'
@@ -62,12 +194,13 @@ Resources:
   # SageMaker Model
   ChurnPredictionModel:
     Type: AWS::SageMaker::Model
+    DependsOn: DemoModel
     Properties:
       ModelName: !Sub '${EnvironmentName}-churn-model'
       ExecutionRoleArn: !GetAtt SageMakerEndpointRole.Arn
       PrimaryContainer:
         Image: !Sub '683313688378.dkr.ecr.${AWS::Region}.amazonaws.com/sagemaker-xgboost:1.5-1'
-        ModelDataUrl: !Ref ModelDataUrl
+        ModelDataUrl: !GetAtt DemoModel.ModelUrl
         Environment:
           SAGEMAKER_PROGRAM: inference.py
           SAGEMAKER_SUBMIT_DIRECTORY: /opt/ml/model/code
@@ -101,6 +234,7 @@ Resources:
   # S3 Bucket for Data Capture
   DataCaptureBucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
     Properties:
       BucketName: !Sub '${AWS::StackName}-data-capture-${AWS::AccountId}'
       BucketEncryption:
@@ -112,6 +246,11 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldCaptures
+            Status: Enabled
+            ExpirationInDays: 7
 
   # SageMaker Endpoint
   ChurnPredictionEndpoint:
@@ -315,6 +454,14 @@ Resources:
           Value: AllTraffic
 
 Outputs:
+  ModelArtifactsBucket:
+    Description: 'S3 bucket containing the demo model'
+    Value: !Ref ModelArtifactsBucket
+
+  ModelUrl:
+    Description: 'S3 URL of the demo model'
+    Value: !GetAtt DemoModel.ModelUrl
+
   EndpointName:
     Description: 'Name of the SageMaker endpoint'
     Value: !GetAtt ChurnPredictionEndpoint.EndpointName

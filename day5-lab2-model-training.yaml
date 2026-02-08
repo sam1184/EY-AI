@@ -8,10 +8,11 @@ Parameters:
     Default: SecureBank-Day5-Lab2
   
   TrainingInstanceType:
-    Description: Instance type for training job
+    Description: Instance type for training job (ml.t3.medium recommended for cost savings)
     Type: String
-    Default: ml.m5.xlarge
+    Default: ml.t3.medium
     AllowedValues:
+      - ml.t3.medium
       - ml.m5.large
       - ml.m5.xlarge
       - ml.m5.2xlarge
@@ -168,21 +169,21 @@ Resources:
                       'S3OutputPath': f"s3://{os.environ['MODEL_BUCKET']}/models/"
                   },
                   'ResourceConfig': {
-                      'InstanceType': 'ml.m5.xlarge',
+                      'InstanceType': 'ml.t3.medium',
                       'InstanceCount': 1,
-                      'VolumeSizeInGB': 30
+                      'VolumeSizeInGB': 10
                   },
                   'StoppingCondition': {
-                      'MaxRuntimeInSeconds': 3600
+                      'MaxRuntimeInSeconds': 1800
                   },
                   'HyperParameters': {
                       'objective': 'binary:logistic',
-                      'num_round': '100',
-                      'max_depth': '5',
-                      'eta': '0.2',
+                      'num_round': '50',
+                      'max_depth': '3',
+                      'eta': '0.3',
                       'subsample': '0.8',
                       'colsample_bytree': '0.8',
-                      'min_child_weight': '3'
+                      'min_child_weight': '1'
                   }
               }
               
