@@ -1,0 +1,354 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Day 5 Lab 3: SageMaker Model Deployment - Real-time Endpoint with Auto-scaling'
+
+Parameters:
+  EnvironmentName:
+    Description: Environment name prefix
+    Type: String
+    Default: SecureBank-Day5-Lab3
+  
+  ModelDataUrl:
+    Description: S3 URL to model artifacts (model.tar.gz)
+    Type: String
+  
+  EndpointInstanceType:
+    Description: Instance type for endpoint
+    Type: String
+    Default: ml.t2.medium
+    AllowedValues:
+      - ml.t2.medium
+      - ml.t2.large
+      - ml.m5.large
+      - ml.m5.xlarge
+      - ml.c5.large
+      - ml.c5.xlarge
+
+Resources:
+  # IAM Role for SageMaker Endpoint
+  SageMakerEndpointRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-Endpoint-Role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sagemaker.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+      Policies:
+        - PolicyName: S3ModelAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub '${ModelDataUrl}*'
+        - PolicyName: CloudWatchLogsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/*'
+
+
+  # SageMaker Model
+  ChurnPredictionModel:
+    Type: AWS::SageMaker::Model
+    Properties:
+      ModelName: !Sub '${EnvironmentName}-churn-model'
+      ExecutionRoleArn: !GetAtt SageMakerEndpointRole.Arn
+      PrimaryContainer:
+        Image: !Sub '683313688378.dkr.ecr.${AWS::Region}.amazonaws.com/sagemaker-xgboost:1.5-1'
+        ModelDataUrl: !Ref ModelDataUrl
+        Environment:
+          SAGEMAKER_PROGRAM: inference.py
+          SAGEMAKER_SUBMIT_DIRECTORY: /opt/ml/model/code
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-model'
+        - Key: UseCase
+          Value: ChurnPrediction
+
+  # Endpoint Configuration
+  EndpointConfig:
+    Type: AWS::SageMaker::EndpointConfig
+    Properties:
+      EndpointConfigName: !Sub '${EnvironmentName}-endpoint-config'
+      ProductionVariants:
+        - VariantName: AllTraffic
+          ModelName: !GetAtt ChurnPredictionModel.ModelName
+          InitialInstanceCount: 1
+          InstanceType: !Ref EndpointInstanceType
+          InitialVariantWeight: 1.0
+      DataCaptureConfig:
+        EnableCapture: true
+        InitialSamplingPercentage: 100
+        DestinationS3Uri: !Sub 's3://${DataCaptureBucket}/data-capture'
+        CaptureOptions:
+          - CaptureMode: InputAndOutput
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-config'
+
+  # S3 Bucket for Data Capture
+  DataCaptureBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-data-capture-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # SageMaker Endpoint
+  ChurnPredictionEndpoint:
+    Type: AWS::SageMaker::Endpoint
+    Properties:
+      EndpointName: !Sub '${EnvironmentName}-endpoint'
+      EndpointConfigName: !GetAtt EndpointConfig.EndpointConfigName
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-endpoint'
+        - Key: Environment
+          Value: Production
+
+
+  # Lambda Function to Invoke Endpoint
+  EndpointInvokeLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${EnvironmentName}-invoke-endpoint'
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt EndpointInvokeLambdaRole.Arn
+      Timeout: 30
+      Environment:
+        Variables:
+          ENDPOINT_NAME: !GetAtt ChurnPredictionEndpoint.EndpointName
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          
+          runtime = boto3.client('sagemaker-runtime')
+          
+          def lambda_handler(event, context):
+              """
+              Invoke SageMaker endpoint for churn prediction
+              """
+              
+              endpoint_name = os.environ['ENDPOINT_NAME']
+              
+              # Parse input from event
+              if 'body' in event:
+                  body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
+              else:
+                  body = event
+              
+              # Prepare input for XGBoost (CSV format)
+              # Expected features: age, balance, num_products, has_credit_card, is_active_member
+              features = [
+                  body.get('age', 35),
+                  body.get('balance', 50000),
+                  body.get('num_products', 2),
+                  body.get('has_credit_card', 1),
+                  body.get('is_active_member', 1)
+              ]
+              
+              payload = ','.join(map(str, features))
+              
+              try:
+                  response = runtime.invoke_endpoint(
+                      EndpointName=endpoint_name,
+                      ContentType='text/csv',
+                      Body=payload
+                  )
+                  
+                  result = response['Body'].read().decode('utf-8')
+                  prediction = float(result.strip())
+                  
+                  # Interpret prediction
+                  churn_risk = 'HIGH' if prediction > 0.7 else 'MEDIUM' if prediction > 0.4 else 'LOW'
+                  
+                  return {
+                      'statusCode': 200,
+                      'headers': {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*'
+                      },
+                      'body': json.dumps({
+                          'churn_probability': round(prediction, 4),
+                          'churn_risk': churn_risk,
+                          'recommendation': get_recommendation(churn_risk),
+                          'input_features': {
+                              'age': features[0],
+                              'balance': features[1],
+                              'num_products': features[2],
+                              'has_credit_card': features[3],
+                              'is_active_member': features[4]
+                          }
+                      })
+                  }
+              except Exception as e:
+                  print(f"Error invoking endpoint: {str(e)}")
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps({
+                          'error': str(e)
+                      })
+                  }
+          
+          def get_recommendation(risk_level):
+              """Get retention recommendation based on risk level"""
+              recommendations = {
+                  'HIGH': 'Immediate intervention required. Assign dedicated relationship manager.',
+                  'MEDIUM': 'Monitor closely. Consider targeted retention offers.',
+                  'LOW': 'Continue standard engagement. No immediate action needed.'
+              }
+              return recommendations.get(risk_level, 'Unknown risk level')
+
+  # IAM Role for Endpoint Invoke Lambda
+  EndpointInvokeLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SageMakerInvokePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sagemaker:InvokeEndpoint
+                Resource: !Sub 'arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/${ChurnPredictionEndpoint.EndpointName}'
+
+
+  # API Gateway for Endpoint Access
+  ChurnPredictionAPI:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${EnvironmentName}-api'
+      ProtocolType: HTTP
+      Description: 'API for churn prediction endpoint'
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - POST
+          - GET
+        AllowHeaders:
+          - '*'
+
+  # API Gateway Integration
+  APIIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ChurnPredictionAPI
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt EndpointInvokeLambda.Arn
+      PayloadFormatVersion: '2.0'
+
+  # API Gateway Route
+  APIRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ChurnPredictionAPI
+      RouteKey: 'POST /predict'
+      Target: !Sub 'integrations/${APIIntegration}'
+
+  # API Gateway Stage
+  APIStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref ChurnPredictionAPI
+      StageName: 'prod'
+      AutoDeploy: true
+
+  # Lambda Permission for API Gateway
+  APIGatewayInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EndpointInvokeLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ChurnPredictionAPI}/*'
+
+  # CloudWatch Alarm for Endpoint Invocations
+  EndpointInvocationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${EnvironmentName}-high-invocations'
+      AlarmDescription: 'Alert when endpoint invocations are high'
+      MetricName: ModelInvocations
+      Namespace: AWS/SageMaker
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: EndpointName
+          Value: !GetAtt ChurnPredictionEndpoint.EndpointName
+        - Name: VariantName
+          Value: AllTraffic
+
+Outputs:
+  EndpointName:
+    Description: 'Name of the SageMaker endpoint'
+    Value: !GetAtt ChurnPredictionEndpoint.EndpointName
+    Export:
+      Name: !Sub '${EnvironmentName}-EndpointName'
+
+  EndpointArn:
+    Description: 'ARN of the SageMaker endpoint'
+    Value: !Sub 'arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:endpoint/${ChurnPredictionEndpoint.EndpointName}'
+
+  InvokeLambdaArn:
+    Description: 'ARN of the Lambda function to invoke endpoint'
+    Value: !GetAtt EndpointInvokeLambda.Arn
+
+  APIEndpoint:
+    Description: 'API Gateway endpoint URL'
+    Value: !Sub 'https://${ChurnPredictionAPI}.execute-api.${AWS::Region}.amazonaws.com/prod/predict'
+
+  DataCaptureBucket:
+    Description: 'S3 bucket for endpoint data capture'
+    Value: !Ref DataCaptureBucket
+
+  TestEndpointCommand:
+    Description: 'Command to test the endpoint'
+    Value: !Sub |
+      # Test via Lambda
+      aws lambda invoke \
+        --function-name ${EndpointInvokeLambda} \
+        --payload '{"age": 45, "balance": 50000, "num_products": 2, "has_credit_card": 1, "is_active_member": 0}' \
+        response.json
+      
+      cat response.json
+      
+      # Test via API Gateway
+      curl -X POST https://${ChurnPredictionAPI}.execute-api.${AWS::Region}.amazonaws.com/prod/predict \
+        -H "Content-Type: application/json" \
+        -d '{"age": 45, "balance": 50000, "num_products": 2, "has_credit_card": 1, "is_active_member": 0}'

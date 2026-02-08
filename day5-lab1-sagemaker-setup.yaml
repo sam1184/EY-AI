@@ -1,0 +1,145 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Day 5 Lab 1: SageMaker Setup - S3 Bucket, IAM Role, and Notebook Instance'
+
+Parameters:
+  EnvironmentName:
+    Description: Environment name prefix
+    Type: String
+    Default: SecureBank-Day5-Lab1
+  
+  NotebookInstanceType:
+    Description: SageMaker notebook instance type
+    Type: String
+    Default: ml.t3.medium
+    AllowedValues:
+      - ml.t3.medium
+      - ml.t3.large
+      - ml.m5.xlarge
+
+Resources:
+  # S3 Bucket for ML Data and Models
+  MLDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-ml-data-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldTrainingData
+            Status: Enabled
+            ExpirationInDays: 90
+            NoncurrentVersionExpirationInDays: 30
+
+  # IAM Role for SageMaker Notebook
+  SageMakerExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-SageMaker-Role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sagemaker.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+      Policies:
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${AWS::StackName}-ml-data-${AWS::AccountId}'
+                  - !Sub 'arn:aws:s3:::${AWS::StackName}-ml-data-${AWS::AccountId}/*'
+              - Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                Resource: '*'
+        - PolicyName: CloudWatchLogsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/*'
+
+
+  # SageMaker Notebook Instance
+  NotebookInstance:
+    Type: AWS::SageMaker::NotebookInstance
+    Properties:
+      NotebookInstanceName: !Sub '${EnvironmentName}-notebook'
+      InstanceType: !Ref NotebookInstanceType
+      RoleArn: !GetAtt SageMakerExecutionRole.Arn
+      DefaultCodeRepository: https://github.com/aws/amazon-sagemaker-examples.git
+      VolumeSizeInGB: 20
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-notebook'
+        - Key: Environment
+          Value: Training
+        - Key: Project
+          Value: ChurnPrediction
+
+  # CloudWatch Log Group for SageMaker
+  SageMakerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/sagemaker/${EnvironmentName}'
+      RetentionInDays: 14
+
+Outputs:
+  MLDataBucketName:
+    Description: 'Name of the S3 bucket for ML data'
+    Value: !Ref MLDataBucket
+    Export:
+      Name: !Sub '${EnvironmentName}-MLDataBucket'
+
+  SageMakerRoleArn:
+    Description: 'ARN of the SageMaker execution role'
+    Value: !GetAtt SageMakerExecutionRole.Arn
+    Export:
+      Name: !Sub '${EnvironmentName}-SageMakerRole'
+
+  NotebookInstanceName:
+    Description: 'Name of the SageMaker notebook instance'
+    Value: !GetAtt NotebookInstance.NotebookInstanceName
+    Export:
+      Name: !Sub '${EnvironmentName}-NotebookName'
+
+  NotebookURL:
+    Description: 'URL to access the SageMaker notebook'
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/sagemaker/home?region=${AWS::Region}#/notebook-instances/${NotebookInstance.NotebookInstanceName}'
+
+  UploadDataCommand:
+    Description: 'Command to upload sample data to S3'
+    Value: !Sub |
+      # Download sample churn dataset
+      wget https://raw.githubusercontent.com/aws-samples/amazon-sagemaker-examples/main/use-cases/customer_churn/churn.txt
+      
+      # Upload to S3
+      aws s3 cp churn.txt s3://${MLDataBucket}/data/raw/churn.txt
+      
+      echo "Data uploaded successfully to s3://${MLDataBucket}/data/raw/"

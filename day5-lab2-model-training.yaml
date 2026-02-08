@@ -1,0 +1,271 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Day 5 Lab 2: SageMaker Model Training - XGBoost Training Job with Hyperparameter Tuning'
+
+Parameters:
+  EnvironmentName:
+    Description: Environment name prefix
+    Type: String
+    Default: SecureBank-Day5-Lab2
+  
+  TrainingInstanceType:
+    Description: Instance type for training job
+    Type: String
+    Default: ml.m5.xlarge
+    AllowedValues:
+      - ml.m5.large
+      - ml.m5.xlarge
+      - ml.m5.2xlarge
+  
+  DataBucketName:
+    Description: S3 bucket containing training data (from Lab 1)
+    Type: String
+
+Resources:
+  # S3 Bucket for Model Artifacts
+  ModelArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-models-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  # IAM Role for SageMaker Training
+  SageMakerTrainingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-Training-Role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sagemaker.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+      Policies:
+        - PolicyName: S3DataAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${DataBucketName}'
+                  - !Sub 'arn:aws:s3:::${DataBucketName}/*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${ModelArtifactsBucket}'
+                  - !Sub 'arn:aws:s3:::${ModelArtifactsBucket}/*'
+        - PolicyName: CloudWatchLogsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/*'
+
+
+  # CloudWatch Log Group for Training Jobs
+  TrainingLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/sagemaker/TrainingJobs/${EnvironmentName}'
+      RetentionInDays: 30
+
+  # SNS Topic for Training Notifications
+  TrainingNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${EnvironmentName}-training-notifications'
+      DisplayName: 'SageMaker Training Job Notifications'
+
+  # Lambda Function to Start Training Job
+  TrainingJobLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${EnvironmentName}-start-training'
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt TrainingJobLambdaRole.Arn
+      Timeout: 60
+      Environment:
+        Variables:
+          TRAINING_ROLE_ARN: !GetAtt SageMakerTrainingRole.Arn
+          DATA_BUCKET: !Ref DataBucketName
+          MODEL_BUCKET: !Ref ModelArtifactsBucket
+          SNS_TOPIC_ARN: !Ref TrainingNotificationTopic
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from datetime import datetime
+          
+          sagemaker = boto3.client('sagemaker')
+          
+          def lambda_handler(event, context):
+              """
+              Start a SageMaker training job for churn prediction
+              """
+              
+              training_job_name = f"churn-xgboost-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+              
+              # XGBoost container image
+              region = os.environ['AWS_REGION']
+              container = f"683313688378.dkr.ecr.{region}.amazonaws.com/sagemaker-xgboost:1.5-1"
+              
+              training_params = {
+                  'TrainingJobName': training_job_name,
+                  'RoleArn': os.environ['TRAINING_ROLE_ARN'],
+                  'AlgorithmSpecification': {
+                      'TrainingImage': container,
+                      'TrainingInputMode': 'File'
+                  },
+                  'InputDataConfig': [
+                      {
+                          'ChannelName': 'train',
+                          'DataSource': {
+                              'S3DataSource': {
+                                  'S3DataType': 'S3Prefix',
+                                  'S3Uri': f"s3://{os.environ['DATA_BUCKET']}/data/train/",
+                                  'S3DataDistributionType': 'FullyReplicated'
+                              }
+                          },
+                          'ContentType': 'text/csv'
+                      },
+                      {
+                          'ChannelName': 'validation',
+                          'DataSource': {
+                              'S3DataSource': {
+                                  'S3DataType': 'S3Prefix',
+                                  'S3Uri': f"s3://{os.environ['DATA_BUCKET']}/data/validation/",
+                                  'S3DataDistributionType': 'FullyReplicated'
+                              }
+                          },
+                          'ContentType': 'text/csv'
+                      }
+                  ],
+                  'OutputDataConfig': {
+                      'S3OutputPath': f"s3://{os.environ['MODEL_BUCKET']}/models/"
+                  },
+                  'ResourceConfig': {
+                      'InstanceType': 'ml.m5.xlarge',
+                      'InstanceCount': 1,
+                      'VolumeSizeInGB': 30
+                  },
+                  'StoppingCondition': {
+                      'MaxRuntimeInSeconds': 3600
+                  },
+                  'HyperParameters': {
+                      'objective': 'binary:logistic',
+                      'num_round': '100',
+                      'max_depth': '5',
+                      'eta': '0.2',
+                      'subsample': '0.8',
+                      'colsample_bytree': '0.8',
+                      'min_child_weight': '3'
+                  }
+              }
+              
+              try:
+                  response = sagemaker.create_training_job(**training_params)
+                  
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps({
+                          'message': 'Training job started successfully',
+                          'trainingJobName': training_job_name,
+                          'trainingJobArn': response['TrainingJobArn']
+                      })
+                  }
+              except Exception as e:
+                  print(f"Error starting training job: {str(e)}")
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps({
+                          'error': str(e)
+                      })
+                  }
+
+
+  # IAM Role for Training Job Lambda
+  TrainingJobLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SageMakerTrainingPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sagemaker:CreateTrainingJob
+                  - sagemaker:DescribeTrainingJob
+                  - sagemaker:StopTrainingJob
+                Resource: !Sub 'arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:training-job/*'
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: !GetAtt SageMakerTrainingRole.Arn
+
+Outputs:
+  ModelArtifactsBucketName:
+    Description: 'S3 bucket for model artifacts'
+    Value: !Ref ModelArtifactsBucket
+    Export:
+      Name: !Sub '${EnvironmentName}-ModelBucket'
+
+  TrainingRoleArn:
+    Description: 'ARN of the SageMaker training role'
+    Value: !GetAtt SageMakerTrainingRole.Arn
+    Export:
+      Name: !Sub '${EnvironmentName}-TrainingRole'
+
+  TrainingJobLambdaArn:
+    Description: 'ARN of the Lambda function to start training jobs'
+    Value: !GetAtt TrainingJobLambda.Arn
+
+  SNSTopicArn:
+    Description: 'SNS topic for training notifications'
+    Value: !Ref TrainingNotificationTopic
+
+  StartTrainingCommand:
+    Description: 'Command to start a training job'
+    Value: !Sub |
+      # Invoke Lambda to start training job
+      aws lambda invoke \
+        --function-name ${TrainingJobLambda} \
+        --payload '{}' \
+        response.json
+      
+      # Check training job status
+      TRAINING_JOB_NAME=$(cat response.json | jq -r '.body' | jq -r '.trainingJobName')
+      aws sagemaker describe-training-job --training-job-name $TRAINING_JOB_NAME
