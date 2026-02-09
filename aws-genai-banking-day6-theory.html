@@ -1599,6 +1599,155 @@
 </div>
 </div>
 
+<h2 style="color: #333;">⚖️ RAG vs Fine-Tuning: Decision Framework</h2>
+<div class="grid-2">
+<div class="card blue">
+<h4 style="color: #333;">🔍 RAG (Retrieval-Augmented Generation)</h4>
+<ul>
+<li style="color: #333;"><span style="color: #28a745; font-weight: bold;">✅</span> Real-time knowledge updates</li>
+<li style="color: #333;"><span style="color: #28a745; font-weight: bold;">✅</span> No training required</li>
+<li style="color: #333;"><span style="color: #28a745; font-weight: bold;">✅</span> Traceable sources</li>
+<li style="color: #333;"><span style="color: #28a745; font-weight: bold;">✅</span> Works with any base model</li>
+<li style="color: #333;"><span style="color: #ff9900; font-weight: bold;">⚠️</span> Higher latency (retrieval step)</li>
+<li style="color: #333;"><span style="color: #ff9900; font-weight: bold;">⚠️</span> Retrieval quality matters</li>
+</ul>
+</div>
+<div class="card purple">
+<h4 style="color: #333;">🎓 Fine-Tuning</h4>
+<ul>
+<li style="color: #333;"><span style="color: #28a745; font-weight: bold;">✅</span> Consistent output format</li>
+<li style="color: #333;"><span style="color: #28a745; font-weight: bold;">✅</span> Lower inference latency</li>
+<li style="color: #333;"><span style="color: #28a745; font-weight: bold;">✅</span> Shorter prompts needed</li>
+<li style="color: #333;"><span style="color: #28a745; font-weight: bold;">✅</span> Domain-specific behavior</li>
+<li style="color: #333;"><span style="color: #ff9900; font-weight: bold;">⚠️</span> Training cost & time</li>
+<li style="color: #333;"><span style="color: #ff9900; font-weight: bold;">⚠️</span> Knowledge frozen at training</li>
+</ul>
+</div>
+</div>
+
+<h2 style="color: #333;">Decision Tree: RAG vs Fine-Tuning</h2>
+<div class="arch-container">
+<div style="text-align: center; margin-bottom: 30px;">
+<svg height="500" viewbox="0 0 900 500" width="900" xmlns="http://www.w3.org/2000/svg">
+<!-- Background -->
+<rect fill="#f8f9fa" height="500" rx="10" stroke="#0066cc" stroke-width="2" width="900"></rect>
+<!-- Title -->
+<text fill="#001a33" font-size="18" font-weight="bold" text-anchor="middle" x="450" y="30">RAG vs Fine-Tuning Decision Tree for Banking</text>
+
+<!-- Level 1: Root Question -->
+<rect fill="#fff8f0" height="60" rx="8" stroke="#ff9900" stroke-width="3" width="400" x="250" y="60"></rect>
+<text fill="#001a33" font-size="14" font-weight="bold" text-anchor="middle" x="450" y="85">🤔 Does knowledge change frequently?</text>
+<text fill="#666" font-size="11" text-anchor="middle" x="450" y="105">(e.g., policies, rates, regulations)</text>
+
+<!-- Branch Lines -->
+<line stroke="#28a745" stroke-width="3" x1="300" x2="200" y1="120" y2="180"></line>
+<line stroke="#dc3545" stroke-width="3" x1="600" x2="700" y1="120" y2="180"></line>
+<text fill="#28a745" font-size="13" font-weight="bold" x="220" y="155">YES</text>
+<text fill="#dc3545" font-size="13" font-weight="bold" x="620" y="155">NO</text>
+
+<!-- Level 2 Left: RAG -->
+<rect fill="#e6f7ff" height="80" rx="8" stroke="#0066cc" stroke-width="3" width="300" x="50" y="180"></rect>
+<text fill="#0066cc" font-size="16" font-weight="bold" text-anchor="middle" x="200" y="210">🔍 Use RAG</text>
+<text fill="#001a33" font-size="11" text-anchor="middle" x="200" y="230">✓ Policy documents</text>
+<text fill="#001a33" font-size="11" text-anchor="middle" x="200" y="245">✓ Interest rates</text>
+<text fill="#001a33" font-size="11" text-anchor="middle" x="200" y="260">✓ Product information</text>
+
+<!-- Level 2 Right: Next Question -->
+<rect fill="#fff0f0" height="60" rx="8" stroke="#ff9900" stroke-width="3" width="350" x="525" y="180"></rect>
+<text fill="#001a33" font-size="14" font-weight="bold" text-anchor="middle" x="700" y="205">🤔 Need specific output format?</text>
+<text fill="#666" font-size="11" text-anchor="middle" x="700" y="225">(e.g., structured JSON, fixed style)</text>
+
+<!-- Branch Lines Level 3 -->
+<line stroke="#28a745" stroke-width="3" x1="650" x2="600" y1="240" y2="300"></line>
+<line stroke="#dc3545" stroke-width="3" x1="750" x2="800" y1="240" y2="300"></line>
+<text fill="#28a745" font-size="13" font-weight="bold" x="610" y="275">YES</text>
+<text fill="#dc3545" font-size="13" font-weight="bold" x="760" y="275">NO</text>
+
+<!-- Level 3 Left: Fine-Tune -->
+<rect fill="#f8f0ff" height="80" rx="8" stroke="#6f42c1" stroke-width="3" width="300" x="450" y="300"></rect>
+<text fill="#6f42c1" font-size="16" font-weight="bold" text-anchor="middle" x="600" y="330">🎓 Fine-Tune</text>
+<text fill="#001a33" font-size="11" text-anchor="middle" x="600" y="350">✓ Compliance classification</text>
+<text fill="#001a33" font-size="11" text-anchor="middle" x="600" y="365">✓ Fraud report generation</text>
+<text fill="#001a33" font-size="11" text-anchor="middle" x="600" y="380">✓ Consistent formatting</text>
+
+<!-- Level 3 Right: Prompt Engineering -->
+<rect fill="#f0fff0" height="80" rx="8" stroke="#28a745" stroke-width="3" width="300" x="550" y="300"></rect>
+<text fill="#28a745" font-size="16" font-weight="bold" text-anchor="middle" x="700" y="330">💡 Prompt Engineering</text>
+<text fill="#001a33" font-size="11" text-anchor="middle" x="700" y="350">✓ General queries</text>
+<text fill="#001a33" font-size="11" text-anchor="middle" x="700" y="365">✓ Customer support</text>
+<text fill="#001a33" font-size="11" text-anchor="middle" x="700" y="380">✓ Quick prototyping</text>
+
+<!-- Hybrid Approach Box -->
+<rect fill="#fffbf0" height="80" rx="8" stroke="#ff9900" stroke-width="3" width="800" x="50" y="400"></rect>
+<text fill="#ff9900" font-size="16" font-weight="bold" text-anchor="middle" x="450" y="425">🔄 Hybrid Approach (Best of Both)</text>
+<text fill="#001a33" font-size="12" text-anchor="middle" x="450" y="445">Fine-tune for output format & style + RAG for current knowledge</text>
+<text fill="#001a33" font-size="11" text-anchor="middle" x="450" y="465">Example: Fine-tuned summarizer + RAG for policy lookup</text>
+
+<!-- Icons -->
+<text fill="#0066cc" font-size="24" x="25" y="225">📚</text>
+<text fill="#6f42c1" font-size="24" x="425" y="345">🎯</text>
+<text fill="#28a745" font-size="24" x="525" y="345">✨</text>
+<text fill="#ff9900" font-size="24" x="25" y="445">⚡</text>
+</svg>
+</div>
+</div>
+
+<h2 style="color: #333;">Banking Use Case Decision Matrix</h2>
+<table>
+<tr><th>Use Case</th><th>Approach</th><th>Reasoning</th></tr>
+<tr>
+<td><strong>Internal Chatbot</strong> (HR policies, IT help)</td>
+<td><span style="background: #e6f7ff; color: #0066cc; padding: 3px 8px; border-radius: 4px; font-weight: bold;">RAG</span></td>
+<td>Policies change frequently, need source citations</td>
+</tr>
+<tr>
+<td><strong>Document Agent</strong> (loan processing)</td>
+<td><span style="background: #e6f7ff; color: #0066cc; padding: 3px 8px; border-radius: 4px; font-weight: bold;">RAG</span> + <span style="background: #f8f0ff; color: #6f42c1; padding: 3px 8px; border-radius: 4px; font-weight: bold;">Fine-Tune</span></td>
+<td>RAG for docs, fine-tune for consistent extraction</td>
+</tr>
+<tr>
+<td><strong>Customer FAQ Bot</strong></td>
+<td><span style="background: #e6f7ff; color: #0066cc; padding: 3px 8px; border-radius: 4px; font-weight: bold;">RAG</span></td>
+<td>Product info changes, need accurate answers</td>
+</tr>
+<tr>
+<td><strong>Compliance Classifier</strong></td>
+<td><span style="background: #f8f0ff; color: #6f42c1; padding: 3px 8px; border-radius: 4px; font-weight: bold;">Fine-Tune</span></td>
+<td>Fixed categories, consistent format needed</td>
+</tr>
+<tr>
+<td><strong>Fraud Narrative Generator</strong></td>
+<td><span style="background: #f8f0ff; color: #6f42c1; padding: 3px 8px; border-radius: 4px; font-weight: bold;">Fine-Tune</span></td>
+<td>Specific style/format, regulatory requirements</td>
+</tr>
+<tr>
+<td><strong>Investment Advisor</strong></td>
+<td><span style="background: #e6f7ff; color: #0066cc; padding: 3px 8px; border-radius: 4px; font-weight: bold;">RAG</span></td>
+<td>Market data changes daily, need disclaimers</td>
+</tr>
+</table>
+
+<div class="grid-2" style="margin-top: 20px;">
+<div class="card green">
+<h4 style="color: #333;">✅ Hybrid Approach Benefits</h4>
+<ul>
+<li style="color: #333;"><strong>Best of Both:</strong> Fine-tune for output format & style</li>
+<li style="color: #333;"><strong>Current Knowledge:</strong> RAG for up-to-date information</li>
+<li style="color: #333;"><strong>Example:</strong> Fine-tuned summarizer + RAG for policy lookup</li>
+<li style="color: #333;"><strong>Cost Effective:</strong> Use RAG for 90% of cases, fine-tune for 10%</li>
+</ul>
+</div>
+<div class="card orange">
+<h4 style="color: #333;">⚠️ Common Mistakes to Avoid</h4>
+<ul>
+<li style="color: #333;"><strong>Over-engineering:</strong> Fine-tuning when RAG would work</li>
+<li style="color: #333;"><strong>Poor Retrieval:</strong> RAG with low-quality embeddings</li>
+<li style="color: #333;"><strong>No Evaluation:</strong> Not testing before deploying</li>
+<li style="color: #333;"><strong>Cost Blindness:</strong> Ignoring training costs for fine-tuning</li>
+</ul>
+</div>
+</div>
+
 <h2 style="color: #333;">Embedding Models</h2>
 <div class="grid-3">
 <div class="card green">
