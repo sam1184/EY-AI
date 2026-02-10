@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Day 7 Lab 1: Amazon Comprehend - Automated Customer Feedback Analysis Pipeline'
+Description: 'Day 7 Lab 1: Amazon Comprehend - Simple Infrastructure (No Circular Dependencies)'
 
 Parameters:
   EnvironmentName:
@@ -13,10 +13,9 @@ Parameters:
     Default: alerts@securebank.com
 
 Resources:
-  # S3 Bucket for Customer Feedback
+  # S3 Bucket for Customer Feedback (without notification - add manually after stack creation)
   FeedbackBucket:
     Type: AWS::S3::Bucket
-    DependsOn: S3InvokeLambdaPermission
     Properties:
       BucketName: !Sub '${AWS::StackName}-feedback-${AWS::AccountId}'
       BucketEncryption:
@@ -28,17 +27,6 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
-      NotificationConfiguration:
-        LambdaConfigurations:
-          - Event: s3:ObjectCreated:*
-            Function: !GetAtt ComprehendProcessorFunction.Arn
-            Filter:
-              S3Key:
-                Rules:
-                  - Name: prefix
-                    Value: feedback/
-                  - Name: suffix
-                    Value: .txt
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -72,8 +60,6 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
-      StreamSpecification:
-        StreamViewType: NEW_AND_OLD_IMAGES
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -174,7 +160,6 @@ Resources:
                   response = s3.get_object(Bucket=bucket, Key=key)
                   text = response['Body'].read().decode('utf-8')
                   
-                  # Analyze with Comprehend
                   feedback_id = key.split('/')[-1].replace('.txt', '')
                   
                   # Sentiment Analysis
@@ -195,7 +180,7 @@ Resources:
                       LanguageCode='en'
                   )
                   
-                  # Store results in DynamoDB
+                  # Store results
                   sentiment = sentiment_response['Sentiment']
                   sentiment_scores = sentiment_response['SentimentScore']
                   
@@ -211,18 +196,11 @@ Resources:
                           'mixed': Decimal(str(sentiment_scores['Mixed']))
                       },
                       'entities': [
-                          {
-                              'text': e['Text'],
-                              'type': e['Type'],
-                              'score': Decimal(str(e['Score']))
-                          }
+                          {'text': e['Text'], 'type': e['Type'], 'score': Decimal(str(e['Score']))}
                           for e in entities_response['Entities'][:10]
                       ],
                       'key_phrases': [
-                          {
-                              'text': p['Text'],
-                              'score': Decimal(str(p['Score']))
-                          }
+                          {'text': p['Text'], 'score': Decimal(str(p['Score']))}
                           for p in phrases_response['KeyPhrases'][:10]
                       ]
                   }
@@ -234,25 +212,12 @@ Resources:
                       sns.publish(
                           TopicArn=sns_topic,
                           Subject=f'Negative Feedback Alert: {feedback_id}',
-                          Message=f"""
-                          Negative customer feedback detected!
-                          
-                          Feedback ID: {feedback_id}
-                          Sentiment: {sentiment}
-                          Confidence: {sentiment_scores['Negative']:.2%}
-                          
-                          Text: {text[:200]}...
-                          
-                          Please review and take action.
-                          """
+                          Message=f"Negative feedback detected!\n\nID: {feedback_id}\nSentiment: {sentiment}\nConfidence: {sentiment_scores['Negative']:.2%}\n\nText: {text[:200]}..."
                       )
               
-              return {
-                  'statusCode': 200,
-                  'body': json.dumps('Processing complete')
-              }
+              return {'statusCode': 200, 'body': json.dumps('Processing complete')}
 
-  # Lambda Permission for S3
+  # Lambda Permission for S3 (to be used when adding S3 notification manually)
   S3InvokeLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -261,31 +226,12 @@ Resources:
       Principal: s3.amazonaws.com
       SourceArn: !GetAtt FeedbackBucket.Arn
 
-  # CloudWatch Dashboard
-  ComprehendDashboard:
-    Type: AWS::CloudWatch::Dashboard
+  # CloudWatch Log Group
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
     Properties:
-      DashboardName: !Sub '${AWS::StackName}-dashboard'
-      DashboardBody: !Sub |
-        {
-          "widgets": [
-            {
-              "type": "metric",
-              "properties": {
-                "metrics": [
-                  ["AWS/Lambda", "Invocations", {"stat": "Sum", "label": "Total Feedback Processed"}],
-                  [".", "Errors", {"stat": "Sum", "label": "Processing Errors"}],
-                  [".", "Duration", {"stat": "Average", "label": "Avg Processing Time"}]
-                ],
-                "period": 300,
-                "stat": "Average",
-                "region": "${AWS::Region}",
-                "title": "Feedback Processing Metrics",
-                "yAxis": {"left": {"min": 0}}
-              }
-            }
-          ]
-        }
+      LogGroupName: !Sub '/aws/lambda/${ComprehendProcessorFunction}'
+      RetentionInDays: 7
 
   # CloudWatch Alarm for High Error Rate
   HighErrorRateAlarm:
@@ -327,19 +273,23 @@ Outputs:
     Description: SNS topic for alerts
     Value: !Ref NegativeFeedbackTopic
 
-  DashboardURL:
-    Description: CloudWatch Dashboard URL
-    Value: !Sub 'https://console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${AWS::StackName}-dashboard'
-
-  UsageInstructions:
-    Description: How to use this stack
+  PostDeploymentSteps:
+    Description: Manual steps after stack creation
     Value: |
-      1. Upload feedback files to s3://BUCKET_NAME/feedback/
-      2. Lambda automatically processes with Comprehend
-      3. Results stored in DynamoDB
-      4. Negative feedback triggers SNS alert
-      5. View metrics in CloudWatch Dashboard
+      IMPORTANT: Add S3 notification manually after stack creation:
+      1. Go to S3 Console
+      2. Open bucket: BUCKET_NAME
+      3. Go to Properties > Event notifications
+      4. Create event notification:
+         - Name: comprehend-trigger
+         - Event types: All object create events
+         - Prefix: feedback/
+         - Suffix: .txt
+         - Destination: Lambda function
+         - Lambda: FUNCTION_ARN
+      
+      Then test by uploading: aws s3 cp feedback.txt s3://BUCKET_NAME/feedback/test-001.txt
 
   EstimatedCost:
     Description: Estimated monthly cost
-    Value: '$10-50 for 10,000 feedback items (Comprehend $0.0001/unit, Lambda $0.20/1M requests, DynamoDB on-demand)'
+    Value: '$10-50 for 10,000 feedback items'
