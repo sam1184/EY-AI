@@ -1,0 +1,384 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Day 7 Lab 2: Amazon Rekognition - Automated KYC Verification System'
+
+Parameters:
+  EnvironmentName:
+    Description: Environment name prefix
+    Type: String
+    Default: SecureBank-KYC
+    
+  SimilarityThreshold:
+    Description: Face comparison similarity threshold (0-100)
+    Type: Number
+    Default: 90
+    MinValue: 70
+    MaxValue: 100
+
+Resources:
+  # S3 Bucket for KYC Documents
+  KYCDocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-documents-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldDocuments
+            Status: Enabled
+            ExpirationInDays: 90
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [PUT, POST, GET]
+            AllowedOrigins: ['*']
+            MaxAge: 3000
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Purpose
+          Value: KYCDocumentStorage
+
+  # DynamoDB Table for Verification Results
+  VerificationResultsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-verifications'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: application_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: N
+        - AttributeName: status
+          AttributeType: S
+      KeySchema:
+        - AttributeName: application_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: StatusIndex
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # IAM Role for Lambda Function
+  KYCLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-lambda-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: RekognitionAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - rekognition:DetectFaces
+                  - rekognition:CompareFaces
+                  - rekognition:DetectText
+                  - rekognition:DetectLabels
+                  - rekognition:DetectModerationLabels
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub '${KYCDocumentsBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource: 
+                  - !GetAtt VerificationResultsTable.Arn
+                  - !Sub '${VerificationResultsTable.Arn}/index/*'
+
+  # Lambda Function for KYC Verification
+  KYCVerificationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-verifier'
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt KYCLambdaRole.Arn
+      Timeout: 120
+      MemorySize: 1024
+      Environment:
+        Variables:
+          RESULTS_TABLE: !Ref VerificationResultsTable
+          SIMILARITY_THRESHOLD: !Ref SimilarityThreshold
+          DOCUMENTS_BUCKET: !Ref KYCDocumentsBucket
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from datetime import datetime, timedelta
+          from decimal import Decimal
+          
+          rekognition = boto3.client('rekognition')
+          dynamodb = boto3.resource('dynamodb')
+          s3 = boto3.client('s3')
+          
+          table = dynamodb.Table(os.environ['RESULTS_TABLE'])
+          similarity_threshold = float(os.environ['SIMILARITY_THRESHOLD'])
+          bucket = os.environ['DOCUMENTS_BUCKET']
+          
+          def lambda_handler(event, context):
+              """
+              Complete KYC verification workflow
+              Expected S3 structure: {application_id}/id.jpg and {application_id}/selfie.jpg
+              """
+              application_id = event.get('application_id')
+              
+              if not application_id:
+                  return error_response('Missing application_id')
+              
+              results = {
+                  'application_id': application_id,
+                  'timestamp': int(datetime.now().timestamp()),
+                  'ttl': int((datetime.now() + timedelta(days=90)).timestamp()),
+                  'id_text_extracted': False,
+                  'id_face_detected': False,
+                  'selfie_face_detected': False,
+                  'faces_match': False,
+                  'similarity_score': Decimal('0'),
+                  'content_moderation_passed': False,
+                  'status': 'PENDING',
+                  'details': {}
+              }
+              
+              try:
+                  id_key = f'{application_id}/id.jpg'
+                  selfie_key = f'{application_id}/selfie.jpg'
+                  
+                  # Step 1: Extract text from ID
+                  text_response = rekognition.detect_text(
+                      Image={'S3Object': {'Bucket': bucket, 'Name': id_key}}
+                  )
+                  
+                  extracted_text = [t['DetectedText'] for t in text_response['TextDetections'] if t['Type'] == 'LINE']
+                  results['id_text_extracted'] = len(extracted_text) > 0
+                  results['details']['extracted_text'] = extracted_text[:10]
+                  
+                  # Step 2: Detect face in ID
+                  id_face_response = rekognition.detect_faces(
+                      Image={'S3Object': {'Bucket': bucket, 'Name': id_key}},
+                      Attributes=['ALL']
+                  )
+                  
+                  results['id_face_detected'] = len(id_face_response['FaceDetails']) > 0
+                  if results['id_face_detected']:
+                      face = id_face_response['FaceDetails'][0]
+                      results['details']['id_face_quality'] = {
+                          'brightness': Decimal(str(face['Quality']['Brightness'])),
+                          'sharpness': Decimal(str(face['Quality']['Sharpness']))
+                      }
+                  
+                  # Step 3: Content moderation on selfie
+                  moderation_response = rekognition.detect_moderation_labels(
+                      Image={'S3Object': {'Bucket': bucket, 'Name': selfie_key}}
+                  )
+                  
+                  results['content_moderation_passed'] = len(moderation_response['ModerationLabels']) == 0
+                  if not results['content_moderation_passed']:
+                      results['details']['moderation_flags'] = [
+                          l['Name'] for l in moderation_response['ModerationLabels']
+                      ]
+                  
+                  # Step 4: Detect face in selfie
+                  selfie_face_response = rekognition.detect_faces(
+                      Image={'S3Object': {'Bucket': bucket, 'Name': selfie_key}},
+                      Attributes=['ALL']
+                  )
+                  
+                  results['selfie_face_detected'] = len(selfie_face_response['FaceDetails']) > 0
+                  
+                  # Step 5: Compare faces
+                  if results['id_face_detected'] and results['selfie_face_detected']:
+                      compare_response = rekognition.compare_faces(
+                          SourceImage={'S3Object': {'Bucket': bucket, 'Name': id_key}},
+                          TargetImage={'S3Object': {'Bucket': bucket, 'Name': selfie_key}},
+                          SimilarityThreshold=similarity_threshold
+                      )
+                      
+                      if compare_response['FaceMatches']:
+                          results['faces_match'] = True
+                          results['similarity_score'] = Decimal(str(compare_response['FaceMatches'][0]['Similarity']))
+                  
+                  # Final decision
+                  all_checks_passed = all([
+                      results['id_text_extracted'],
+                      results['id_face_detected'],
+                      results['selfie_face_detected'],
+                      results['faces_match'],
+                      results['content_moderation_passed'],
+                      float(results['similarity_score']) >= similarity_threshold
+                  ])
+                  
+                  if all_checks_passed:
+                      results['status'] = 'APPROVED'
+                  elif results['faces_match'] and float(results['similarity_score']) >= 85:
+                      results['status'] = 'REVIEW'
+                  else:
+                      results['status'] = 'REJECTED'
+                  
+                  # Store results
+                  table.put_item(Item=results)
+                  
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps({
+                          'application_id': application_id,
+                          'status': results['status'],
+                          'similarity_score': float(results['similarity_score']),
+                          'checks': {
+                              'id_text_extracted': results['id_text_extracted'],
+                              'id_face_detected': results['id_face_detected'],
+                              'selfie_face_detected': results['selfie_face_detected'],
+                              'faces_match': results['faces_match'],
+                              'content_moderation_passed': results['content_moderation_passed']
+                          }
+                      }, default=str)
+                  }
+                  
+              except Exception as e:
+                  results['status'] = 'ERROR'
+                  results['details']['error'] = str(e)
+                  table.put_item(Item=results)
+                  
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps({'error': str(e)})
+                  }
+          
+          def error_response(message):
+              return {
+                  'statusCode': 400,
+                  'body': json.dumps({'error': message})
+              }
+
+  # API Gateway REST API
+  KYCApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub '${AWS::StackName}-api'
+      Description: KYC Verification API
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # API Gateway Resource
+  VerifyResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref KYCApi
+      ParentId: !GetAtt KYCApi.RootResourceId
+      PathPart: verify
+
+  # API Gateway Method
+  VerifyMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref KYCApi
+      ResourceId: !Ref VerifyResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${KYCVerificationFunction.Arn}/invocations'
+
+  # Lambda Permission for API Gateway
+  ApiInvokeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref KYCVerificationFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${KYCApi}/*'
+
+  # API Gateway Deployment
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: VerifyMethod
+    Properties:
+      RestApiId: !Ref KYCApi
+      StageName: prod
+
+  # CloudWatch Log Group for API
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/apigateway/${AWS::StackName}'
+      RetentionInDays: 7
+
+Outputs:
+  DocumentsBucketName:
+    Description: S3 bucket for KYC documents
+    Value: !Ref KYCDocumentsBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-DocumentsBucket'
+
+  VerificationTableName:
+    Description: DynamoDB table for verification results
+    Value: !Ref VerificationResultsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-VerificationTable'
+
+  VerificationFunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt KYCVerificationFunction.Arn
+
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${KYCApi}.execute-api.${AWS::Region}.amazonaws.com/prod/verify'
+
+  UsageInstructions:
+    Description: How to use this stack
+    Value: |
+      1. Upload ID document: s3://BUCKET/{application_id}/id.jpg
+      2. Upload selfie: s3://BUCKET/{application_id}/selfie.jpg
+      3. POST to API: {"application_id": "APP-123"}
+      4. Check results in DynamoDB table
+      5. Status: APPROVED, REVIEW, or REJECTED
+
+  TestCommand:
+    Description: Test the API
+    Value: !Sub |
+      curl -X POST ${KYCApi}.execute-api.${AWS::Region}.amazonaws.com/prod/verify \
+        -H "Content-Type: application/json" \
+        -d '{"application_id": "APP-TEST-001"}'
+
+  EstimatedCost:
+    Description: Estimated cost per verification
+    Value: '$0.005 (Rekognition $0.001/image × 5 operations, Lambda $0.0000002/request, DynamoDB on-demand)'

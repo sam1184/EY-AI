@@ -1,0 +1,394 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Day 7 Lab 3: Amazon Lex - SecureBankBot Customer Service Chatbot'
+
+Parameters:
+  EnvironmentName:
+    Description: Environment name prefix
+    Type: String
+    Default: SecureBank-Chatbot
+
+Resources:
+  # DynamoDB Table for Customer Accounts (Demo Data)
+  CustomerAccountsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-accounts'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customer_id
+          AttributeType: S
+        - AttributeName: account_type
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+        - AttributeName: account_type
+          KeyType: RANGE
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # DynamoDB Table for Conversation History
+  ConversationHistoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-conversations'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: session_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: N
+      KeySchema:
+        - AttributeName: session_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # IAM Role for Lex Bot
+  LexBotRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-lex-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lexv2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonLexRunBotsOnly
+      Policies:
+        - PolicyName: LexCloudWatchLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lex/*'
+
+  # IAM Role for Lambda Fulfillment
+  LexFulfillmentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-fulfillment-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt CustomerAccountsTable.Arn
+                  - !GetAtt ConversationHistoryTable.Arn
+
+  # Lambda Function for Bot Fulfillment
+  BotFulfillmentFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-fulfillment'
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt LexFulfillmentRole.Arn
+      Timeout: 30
+      MemorySize: 512
+      Environment:
+        Variables:
+          ACCOUNTS_TABLE: !Ref CustomerAccountsTable
+          CONVERSATIONS_TABLE: !Ref ConversationHistoryTable
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from datetime import datetime, timedelta
+          from decimal import Decimal
+          
+          dynamodb = boto3.resource('dynamodb')
+          accounts_table = dynamodb.Table(os.environ['ACCOUNTS_TABLE'])
+          conversations_table = dynamodb.Table(os.environ['CONVERSATIONS_TABLE'])
+          
+          def lambda_handler(event, context):
+              """Lex fulfillment function for SecureBankBot"""
+              
+              intent_name = event['sessionState']['intent']['name']
+              slots = event['sessionState']['intent']['slots']
+              session_id = event['sessionId']
+              
+              # Get customer ID from session attributes
+              customer_id = event.get('sessionAttributes', {}).get('customerId', 'DEMO-123')
+              
+              # Log conversation
+              log_conversation(session_id, intent_name, slots)
+              
+              if intent_name == 'CheckBalance':
+                  return handle_check_balance(event, customer_id, slots)
+              elif intent_name == 'TransferMoney':
+                  return handle_transfer(event, customer_id, slots)
+              elif intent_name == 'LoanInquiry':
+                  return handle_loan_inquiry(event, customer_id, slots)
+              else:
+                  return close_intent(event, "I'm not sure how to help with that.")
+          
+          def handle_check_balance(event, customer_id, slots):
+              """Handle balance inquiry"""
+              account_type = get_slot_value(slots, 'AccountType')
+              
+              if not account_type:
+                  return elicit_slot(event, 'AccountType', 
+                      "Which account would you like to check? Checking or savings?")
+              
+              # Query DynamoDB for account balance
+              try:
+                  response = accounts_table.get_item(
+                      Key={'customer_id': customer_id, 'account_type': account_type.lower()}
+                  )
+                  
+                  if 'Item' in response:
+                      balance = float(response['Item']['balance'])
+                      message = f"Your {account_type} account balance is ${balance:,.2f}. Is there anything else I can help you with?"
+                  else:
+                      # Demo data
+                      balance = 2547.83 if account_type.lower() == 'checking' else 15234.56
+                      message = f"Your {account_type} account balance is ${balance:,.2f}. Is there anything else I can help you with?"
+                  
+                  return close_intent(event, message)
+                  
+              except Exception as e:
+                  return close_intent(event, f"I'm having trouble accessing your account. Please try again later.")
+          
+          def handle_transfer(event, customer_id, slots):
+              """Handle money transfer"""
+              amount = get_slot_value(slots, 'Amount')
+              from_account = get_slot_value(slots, 'FromAccount')
+              to_account = get_slot_value(slots, 'ToAccount')
+              
+              # Elicit missing slots
+              if not amount:
+                  return elicit_slot(event, 'Amount', 
+                      "How much would you like to transfer?")
+              if not from_account:
+                  return elicit_slot(event, 'FromAccount', 
+                      "From which account? Checking or savings?")
+              if not to_account:
+                  return elicit_slot(event, 'ToAccount', 
+                      "To which account? Checking or savings?")
+              
+              # Check if confirmation is needed
+              confirmation_state = event['sessionState']['intent'].get('confirmationState')
+              
+              if confirmation_state != 'Confirmed':
+                  return confirm_intent(event, 
+                      f"Let me confirm: Transfer ${amount} from {from_account} to {to_account}. Is this correct?")
+              
+              # Process transfer (demo - would integrate with banking system)
+              try:
+                  amount_float = float(amount)
+                  new_balance = 2547.83 - amount_float  # Demo calculation
+                  
+                  message = (f"Transfer completed! ${amount_float:,.2f} has been moved from "
+                            f"{from_account} to {to_account}. "
+                            f"Your new {from_account} balance is ${new_balance:,.2f}.")
+                  
+                  return close_intent(event, message)
+                  
+              except Exception as e:
+                  return close_intent(event, "I'm sorry, the transfer failed. Please try again later.")
+          
+          def handle_loan_inquiry(event, customer_id, slots):
+              """Handle loan inquiry"""
+              loan_type = get_slot_value(slots, 'LoanType')
+              amount = get_slot_value(slots, 'Amount')
+              
+              if not loan_type:
+                  return elicit_slot(event, 'LoanType', 
+                      "What type of loan are you interested in? We offer personal, mortgage, auto, and business loans.")
+              
+              if not amount:
+                  return elicit_slot(event, 'Amount', 
+                      f"How much would you like to borrow for your {loan_type} loan?")
+              
+              # Calculate loan options
+              try:
+                  amount_float = float(amount)
+                  
+                  rates = {
+                      'personal': 0.075,
+                      'mortgage': 0.045,
+                      'auto': 0.055,
+                      'business': 0.065
+                  }
+                  
+                  rate = rates.get(loan_type.lower(), 0.08)
+                  
+                  # Calculate monthly payments
+                  term_3yr = calculate_payment(amount_float, rate, 36)
+                  term_5yr = calculate_payment(amount_float, rate + 0.01, 60)
+                  
+                  message = (f"For a ${amount_float:,.0f} {loan_type} loan, here are your options:\n\n"
+                            f"• 3-year term: ${term_3yr:,.0f}/month at {rate*100:.1f}% APR\n"
+                            f"• 5-year term: ${term_5yr:,.0f}/month at {(rate+0.01)*100:.1f}% APR\n\n"
+                            f"Would you like to start an application? I can connect you with a loan officer.")
+                  
+                  return close_intent(event, message)
+                  
+              except Exception as e:
+                  return close_intent(event, "I'm having trouble calculating loan options. Please try again.")
+          
+          def calculate_payment(principal, rate, months):
+              """Calculate monthly loan payment"""
+              monthly_rate = rate / 12
+              payment = principal * (monthly_rate * (1 + monthly_rate)**months) / \
+                        ((1 + monthly_rate)**months - 1)
+              return payment
+          
+          def get_slot_value(slots, slot_name):
+              """Extract slot value"""
+              if slot_name in slots and slots[slot_name]:
+                  if 'value' in slots[slot_name]:
+                      return slots[slot_name]['value'].get('interpretedValue')
+              return None
+          
+          def elicit_slot(event, slot_name, message):
+              """Elicit a specific slot"""
+              return {
+                  'sessionState': {
+                      'dialogAction': {
+                          'type': 'ElicitSlot',
+                          'slotToElicit': slot_name
+                      },
+                      'intent': event['sessionState']['intent']
+                  },
+                  'messages': [{'contentType': 'PlainText', 'content': message}]
+              }
+          
+          def confirm_intent(event, message):
+              """Request intent confirmation"""
+              return {
+                  'sessionState': {
+                      'dialogAction': {'type': 'ConfirmIntent'},
+                      'intent': event['sessionState']['intent']
+                  },
+                  'messages': [{'contentType': 'PlainText', 'content': message}]
+              }
+          
+          def close_intent(event, message):
+              """Close the intent"""
+              return {
+                  'sessionState': {
+                      'dialogAction': {'type': 'Close'},
+                      'intent': {
+                          'name': event['sessionState']['intent']['name'],
+                          'state': 'Fulfilled'
+                      }
+                  },
+                  'messages': [{'contentType': 'PlainText', 'content': message}]
+              }
+          
+          def log_conversation(session_id, intent_name, slots):
+              """Log conversation to DynamoDB"""
+              try:
+                  conversations_table.put_item(
+                      Item={
+                          'session_id': session_id,
+                          'timestamp': int(datetime.now().timestamp()),
+                          'ttl': int((datetime.now() + timedelta(days=30)).timestamp()),
+                          'intent': intent_name,
+                          'slots': json.dumps(slots, default=str)
+                      }
+                  )
+              except:
+                  pass  # Don't fail on logging errors
+
+  # Lambda Permission for Lex
+  LexInvokeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BotFulfillmentFunction
+      Action: lambda:InvokeFunction
+      Principal: lexv2.amazonaws.com
+
+  # CloudWatch Log Group
+  BotLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lex/${AWS::StackName}'
+      RetentionInDays: 7
+
+Outputs:
+  AccountsTableName:
+    Description: DynamoDB table for customer accounts
+    Value: !Ref CustomerAccountsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-AccountsTable'
+
+  ConversationsTableName:
+    Description: DynamoDB table for conversation history
+    Value: !Ref ConversationHistoryTable
+    Export:
+      Name: !Sub '${AWS::StackName}-ConversationsTable'
+
+  FulfillmentFunctionArn:
+    Description: Lambda fulfillment function ARN
+    Value: !GetAtt BotFulfillmentFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-FulfillmentFunction'
+
+  LexBotRoleArn:
+    Description: IAM role for Lex bot
+    Value: !GetAtt LexBotRole.Arn
+
+  NextSteps:
+    Description: Next steps to complete bot setup
+    Value: |
+      1. Go to Amazon Lex console
+      2. Create new bot: SecureBankBot
+      3. Add intents: CheckBalance, TransferMoney, LoanInquiry
+      4. Configure slots for each intent
+      5. Set fulfillment Lambda: Use ARN from outputs
+      6. Build and test bot
+      7. Deploy to channels (web, mobile, Slack, etc.)
+
+  BotIntents:
+    Description: Intents to create in Lex console
+    Value: |
+      CheckBalance: "What's my balance?", "How much money do I have?"
+      TransferMoney: "Transfer $100 to savings", "Move money"
+      LoanInquiry: "I want a loan", "Apply for mortgage"
+
+  EstimatedCost:
+    Description: Estimated monthly cost
+    Value: '$5-20 for 10,000 requests (Lex $0.00075/text request, Lambda $0.20/1M requests, DynamoDB on-demand)'
+
+  TestInstructions:
+    Description: How to test the bot
+    Value: |
+      After creating bot in Lex console:
+      1. Test in Lex console test window
+      2. Try: "What's my checking balance?"
+      3. Try: "Transfer $500 to savings"
+      4. Try: "I want a personal loan for $25000"

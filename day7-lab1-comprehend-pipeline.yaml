@@ -1,0 +1,344 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Day 7 Lab 1: Amazon Comprehend - Automated Customer Feedback Analysis Pipeline'
+
+Parameters:
+  EnvironmentName:
+    Description: Environment name prefix
+    Type: String
+    Default: SecureBank-Comprehend
+    
+  NotificationEmail:
+    Description: Email address for negative feedback alerts
+    Type: String
+    Default: alerts@securebank.com
+
+Resources:
+  # S3 Bucket for Customer Feedback
+  FeedbackBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-feedback-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt ComprehendProcessorFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: feedback/
+                  - Name: suffix
+                    Value: .txt
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Purpose
+          Value: CustomerFeedbackStorage
+
+  # DynamoDB Table for Analysis Results
+  AnalysisResultsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-results'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: feedback_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: N
+        - AttributeName: sentiment
+          AttributeType: S
+      KeySchema:
+        - AttributeName: feedback_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: SentimentIndex
+          KeySchema:
+            - AttributeName: sentiment
+              KeyType: HASH
+            - AttributeName: timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # SNS Topic for Negative Feedback Alerts
+  NegativeFeedbackTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${AWS::StackName}-negative-feedback'
+      DisplayName: Negative Customer Feedback Alerts
+      Subscription:
+        - Endpoint: !Ref NotificationEmail
+          Protocol: email
+
+  # IAM Role for Lambda Function
+  ComprehendLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-lambda-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ComprehendAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - comprehend:DetectSentiment
+                  - comprehend:DetectEntities
+                  - comprehend:DetectKeyPhrases
+                  - comprehend:DetectPiiEntities
+                  - comprehend:DetectDominantLanguage
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub '${FeedbackBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                Resource: 
+                  - !GetAtt AnalysisResultsTable.Arn
+                  - !Sub '${AnalysisResultsTable.Arn}/index/*'
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref NegativeFeedbackTopic
+
+  # Lambda Function for Comprehend Processing
+  ComprehendProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-processor'
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt ComprehendLambdaRole.Arn
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          RESULTS_TABLE: !Ref AnalysisResultsTable
+          SNS_TOPIC_ARN: !Ref NegativeFeedbackTopic
+          NEGATIVE_THRESHOLD: '0.7'
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from datetime import datetime
+          from decimal import Decimal
+          
+          comprehend = boto3.client('comprehend')
+          dynamodb = boto3.resource('dynamodb')
+          s3 = boto3.client('s3')
+          sns = boto3.client('sns')
+          
+          table = dynamodb.Table(os.environ['RESULTS_TABLE'])
+          sns_topic = os.environ['SNS_TOPIC_ARN']
+          negative_threshold = float(os.environ['NEGATIVE_THRESHOLD'])
+          
+          def lambda_handler(event, context):
+              for record in event['Records']:
+                  bucket = record['s3']['bucket']['name']
+                  key = record['s3']['object']['key']
+                  
+                  # Get feedback text from S3
+                  response = s3.get_object(Bucket=bucket, Key=key)
+                  text = response['Body'].read().decode('utf-8')
+                  
+                  # Analyze with Comprehend
+                  feedback_id = key.split('/')[-1].replace('.txt', '')
+                  
+                  # Sentiment Analysis
+                  sentiment_response = comprehend.detect_sentiment(
+                      Text=text,
+                      LanguageCode='en'
+                  )
+                  
+                  # Entity Extraction
+                  entities_response = comprehend.detect_entities(
+                      Text=text,
+                      LanguageCode='en'
+                  )
+                  
+                  # Key Phrases
+                  phrases_response = comprehend.detect_key_phrases(
+                      Text=text,
+                      LanguageCode='en'
+                  )
+                  
+                  # Store results in DynamoDB
+                  sentiment = sentiment_response['Sentiment']
+                  sentiment_scores = sentiment_response['SentimentScore']
+                  
+                  item = {
+                      'feedback_id': feedback_id,
+                      'timestamp': int(datetime.now().timestamp()),
+                      'text': text,
+                      'sentiment': sentiment,
+                      'sentiment_scores': {
+                          'positive': Decimal(str(sentiment_scores['Positive'])),
+                          'negative': Decimal(str(sentiment_scores['Negative'])),
+                          'neutral': Decimal(str(sentiment_scores['Neutral'])),
+                          'mixed': Decimal(str(sentiment_scores['Mixed']))
+                      },
+                      'entities': [
+                          {
+                              'text': e['Text'],
+                              'type': e['Type'],
+                              'score': Decimal(str(e['Score']))
+                          }
+                          for e in entities_response['Entities'][:10]
+                      ],
+                      'key_phrases': [
+                          {
+                              'text': p['Text'],
+                              'score': Decimal(str(p['Score']))
+                          }
+                          for p in phrases_response['KeyPhrases'][:10]
+                      ]
+                  }
+                  
+                  table.put_item(Item=item)
+                  
+                  # Send alert for negative feedback
+                  if sentiment == 'NEGATIVE' and sentiment_scores['Negative'] >= negative_threshold:
+                      sns.publish(
+                          TopicArn=sns_topic,
+                          Subject=f'Negative Feedback Alert: {feedback_id}',
+                          Message=f"""
+                          Negative customer feedback detected!
+                          
+                          Feedback ID: {feedback_id}
+                          Sentiment: {sentiment}
+                          Confidence: {sentiment_scores['Negative']:.2%}
+                          
+                          Text: {text[:200]}...
+                          
+                          Please review and take action.
+                          """
+                      )
+              
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Processing complete')
+              }
+
+  # Lambda Permission for S3
+  S3InvokeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ComprehendProcessorFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !GetAtt FeedbackBucket.Arn
+
+  # CloudWatch Dashboard
+  ComprehendDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub '${AWS::StackName}-dashboard'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "properties": {
+                "metrics": [
+                  ["AWS/Lambda", "Invocations", {"stat": "Sum", "label": "Total Feedback Processed"}],
+                  [".", "Errors", {"stat": "Sum", "label": "Processing Errors"}],
+                  [".", "Duration", {"stat": "Average", "label": "Avg Processing Time"}]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${AWS::Region}",
+                "title": "Feedback Processing Metrics",
+                "yAxis": {"left": {"min": 0}}
+              }
+            }
+          ]
+        }
+
+  # CloudWatch Alarm for High Error Rate
+  HighErrorRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-high-error-rate'
+      AlarmDescription: Alert when Lambda error rate is high
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ComprehendProcessorFunction
+      AlarmActions:
+        - !Ref NegativeFeedbackTopic
+
+Outputs:
+  FeedbackBucketName:
+    Description: S3 bucket for customer feedback
+    Value: !Ref FeedbackBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-FeedbackBucket'
+
+  ResultsTableName:
+    Description: DynamoDB table for analysis results
+    Value: !Ref AnalysisResultsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-ResultsTable'
+
+  ProcessorFunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt ComprehendProcessorFunction.Arn
+
+  SNSTopicArn:
+    Description: SNS topic for alerts
+    Value: !Ref NegativeFeedbackTopic
+
+  DashboardURL:
+    Description: CloudWatch Dashboard URL
+    Value: !Sub 'https://console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${AWS::StackName}-dashboard'
+
+  UsageInstructions:
+    Description: How to use this stack
+    Value: |
+      1. Upload feedback files to s3://BUCKET_NAME/feedback/
+      2. Lambda automatically processes with Comprehend
+      3. Results stored in DynamoDB
+      4. Negative feedback triggers SNS alert
+      5. View metrics in CloudWatch Dashboard
+
+  EstimatedCost:
+    Description: Estimated monthly cost
+    Value: '$10-50 for 10,000 feedback items (Comprehend $0.0001/unit, Lambda $0.20/1M requests, DynamoDB on-demand)'
