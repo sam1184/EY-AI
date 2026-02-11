@@ -1,0 +1,2203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS GenAI for Banking - Day 9: RAG, Knowledge Bases & Bedrock Agents | Great Learning</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: linear-gradient(135deg, #1a1a1a 0%, #001a33 25%, #0066cc 50%, #001a33 75%, #000000 100%); 
+            min-height: 100vh; 
+            color: #333333;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        
+        /* Great Learning Header Branding */
+        .gl-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 30px;
+            background: rgba(0,0,0,0.8);
+            border-radius: 12px;
+            margin: 20px auto;
+            max-width: 1400px;
+            min-height: 70px;
+            border: 2px solid #0066cc;
+        }
+        .gl-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .gl-logo svg { height: 50px; }
+        .gl-badge {
+            background: linear-gradient(135deg, #0066cc 0%, #0080ff 100%);
+            color: #333333;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            box-shadow: 0 4px 15px rgba(0, 102, 204, 0.3);
+        }
+        
+        /* Great Learning Footer */
+        .gl-footer {
+            margin-top: 60px;
+            padding: 40px 30px;
+            background: rgba(0,0,0,0.8);
+            border-radius: 12px;
+            text-align: center;
+            max-width: 1400px;
+            margin-left: auto;
+            margin-right: auto;
+            border: 2px solid #0066cc;
+        }
+        .gl-footer-logo { margin-bottom: 25px; }
+        .gl-copyright {
+            background: rgba(0,0,0,0.6);
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            color: #333333;
+        }
+        
+        .slide { 
+            min-height: 100vh; 
+            padding: 40px 60px; 
+            background: linear-gradient(135deg, #ffffff 0%, #f8f8f8 100%); 
+            margin: 20px auto; 
+            max-width: 1400px; 
+            border-radius: 12px; 
+            box-shadow: 0 20px 60px rgba(0, 102, 204, 0.3); 
+            page-break-after: always; 
+            color: #333;
+            border: 3px solid #0066cc;
+            position: relative;
+            color: #333333;
+        }
+        
+        /* Slide Header for every slide */
+        .slide-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 0;
+            margin: -40px -60px 30px -60px;
+            padding: 15px 60px;
+            background: rgba(0, 102, 204, 0.1);
+            border-bottom: 2px solid #0066cc;
+            border-radius: 12px 12px 0 0;
+        }
+        .slide-header .gl-logo svg { height: 40px; }
+        .slide-header .gl-badge {
+            background: linear-gradient(135deg, #0066cc 0%, #0080ff 100%);
+            color: #333333;
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        
+        /* Slide Footer for every slide */
+        .slide-footer {
+            position: absolute;
+            bottom: 15px;
+            left: 60px;
+            right: 60px;
+            text-align: center;
+            font-size: 0.7em;
+            color: #666;
+            border-top: 1px solid #eee;
+            padding-top: 10px;
+        }
+        
+        h1 { 
+            color: #0066cc; 
+            font-size: 2.4em; 
+            margin-bottom: 10px; 
+            border-bottom: 4px solid #0066cc; 
+            padding-bottom: 15px; 
+        }
+        h2 { color: #001a33; font-size: 1.6em; margin: 25px 0 15px; }
+        h3 { color: #0066cc; font-size: 1.2em; margin: 20px 0 10px; }
+        h4 { color: #001a33; font-size: 1.05em; margin-bottom: 8px; }
+        .subtitle { color: #666; font-size: 1.1em; margin-bottom: 25px; }
+        
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; margin: 20px 0; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin: 20px 0; }
+        .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 15px; margin: 20px 0; }
+        
+        .card { 
+            background: #f8f8f8; 
+            border-radius: 8px; 
+            padding: 18px; 
+            border-left: 4px solid #0066cc; 
+            box-shadow: 0 4px 15px rgba(0, 102, 204, 0.1);
+        }
+        .card.green { border-left-color: #28a745; background: #f0fff0; }
+        .card.orange { border-left-color: #0066cc; background: #fff8f0; }
+        .card.purple { border-left-color: #6f42c1; background: #f8f0ff; }
+        .card.red { border-left-color: #dc3545; background: #fff0f0; }
+        .card.blue { border-left-color: #007bff; background: #f0f8ff; }
+        .card.aws { border-left-color: #ff9900; background: #fff9e6; }
+        
+        ul { margin-left: 20px; line-height: 1.7; }
+        li { margin: 4px 0; }
+        
+        .highlight { 
+            background: #0066cc; 
+            color: #333333; 
+            padding: 3px 8px; 
+            border-radius: 4px; 
+            font-size: 0.85em; 
+        }
+        .highlight.green { background: #28a745; }
+        .highlight.orange { background: #0066cc; }
+        .highlight.red { background: #dc3545; }
+        .highlight.purple { background: #6f42c1; }
+        .highlight.aws { background: #ff9900; }
+        
+        .time-badge { 
+            background: #28a745; 
+            color: #333333; 
+            padding: 5px 12px; 
+            border-radius: 20px; 
+            font-size: 0.85em; 
+            display: inline-block; 
+            margin-bottom: 15px; 
+        }
+        .module-badge { 
+            background: #0066cc; 
+            color: #333333; 
+            padding: 5px 15px; 
+            border-radius: 20px; 
+            font-size: 0.9em; 
+            display: inline-block; 
+            margin-bottom: 10px; 
+        }
+        .day-badge { 
+            background: #0066cc; 
+            color: #333333; 
+            padding: 8px 20px; 
+            border-radius: 25px; 
+            font-size: 1.1em; 
+            display: inline-block; 
+        }
+        
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 15px 0; 
+            font-size: 0.95em; 
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 102, 204, 0.1);
+        }
+        th, td { 
+            padding: 10px 12px; 
+            text-align: left; 
+            border-bottom: 1px solid #eee; 
+        }
+        th { 
+            background: linear-gradient(135deg, #0066cc 0%, #0080ff 100%); 
+            color: #333333; 
+            font-weight: 600;
+        }
+        tr:hover { background: #f8f8f8; }
+        
+        .code-block { 
+            background: #1a1a1a; 
+            color: #e0e0e0; 
+            padding: 15px; 
+            border-radius: 8px; 
+            font-family: 'Consolas', monospace; 
+            font-size: 0.85em; 
+            overflow-x: auto; 
+            margin: 10px 0; 
+            white-space: pre-wrap; 
+            border-left: 4px solid #0066cc;
+        }
+        .code-block .comment { color: #6a9955; }
+        .code-block .keyword { color: #569cd6; }
+        .code-block .string { color: #ce9178; }
+        .code-block .function { color: #dcdcaa; }
+        
+        .tip-box { 
+            display: flex; 
+            align-items: flex-start; 
+            gap: 12px; 
+            padding: 15px; 
+            background: linear-gradient(135deg, #e6f7ff 0%, #f0f8ff 100%); 
+            border-radius: 8px; 
+            margin: 10px 0; 
+            border-left: 4px solid #007bff; 
+        }
+        .warning-box { 
+            display: flex; 
+            align-items: flex-start; 
+            gap: 12px; 
+            padding: 15px; 
+            background: linear-gradient(135deg, #fff4ce 0%, #fff8e1 100%); 
+            border-radius: 8px; 
+            margin: 10px 0; 
+            border-left: 4px solid #ff9900; 
+        }
+        .danger-box { 
+            display: flex; 
+            align-items: flex-start; 
+            gap: 12px; 
+            padding: 15px; 
+            background: linear-gradient(135deg, #fde7e9 0%, #fff0f0 100%); 
+            border-radius: 8px; 
+            margin: 10px 0; 
+            border-left: 4px solid #dc3545; 
+        }
+        .success-box { 
+            display: flex; 
+            align-items: flex-start; 
+            gap: 12px; 
+            padding: 15px; 
+            background: linear-gradient(135deg, #dff6dd 0%, #f0fff0 100%); 
+            border-radius: 8px; 
+            margin: 10px 0; 
+            border-left: 4px solid #28a745; 
+        }
+        .icon { font-size: 1.5em; }
+        
+        .banking-scenario { 
+            background: linear-gradient(135deg, #001a33 0%, #1a1a1a 100%); 
+            color: #ffffff; 
+            padding: 20px; 
+            border-radius: 10px; 
+            margin: 15px 0; 
+            border: 2px solid #0066cc;
+        }
+        .banking-scenario h4 { color: #0066cc; margin-bottom: 10px; }
+        
+        /* Architecture Diagrams */
+        .arch-container { 
+            max-width: 900px; 
+            margin: 20px auto; 
+            background: #f8f8f8;
+            border-radius: 12px;
+            padding: 20px;
+            border: 2px solid #0066cc;
+        }
+        
+        /* Flow Diagram Styles */
+        .flow-container {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 30px;
+            margin: 20px 0;
+            border: 2px solid #0066cc;
+        }
+        
+        .flow-step {
+            display: flex;
+            align-items: center;
+            margin: 15px 0;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .flow-number {
+            background: #0066cc;
+            color: #333333;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 20px;
+            flex-shrink: 0;
+        }
+        
+        .flow-content {
+            flex: 1;
+        }
+        
+        .flow-title {
+            font-weight: bold;
+            color: #001a33;
+            margin-bottom: 5px;
+        }
+        
+        .flow-description {
+            color: #666;
+            font-size: 0.9em;
+        }
+        
+        .flow-arrow {
+            text-align: center;
+            color: #0066cc;
+            font-size: 1.5em;
+            margin: 10px 0;
+        }
+        
+        /* Pipeline Styles */
+        .pipeline { 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            gap: 0; 
+            margin: 30px 0; 
+            flex-wrap: wrap; 
+        }
+        .pipeline-step { 
+            position: relative; 
+            padding: 20px 25px; 
+            min-width: 110px; 
+            text-align: center; 
+            color: #333333; 
+        }
+        .pipeline-step::after { 
+            content: ''; 
+            position: absolute; 
+            right: -15px; 
+            top: 50%; 
+            transform: translateY(-50%); 
+            border: 15px solid transparent; 
+            border-left: 15px solid; 
+            z-index: 1; 
+        }
+        .pipeline-step.orange { background: #0066cc; }
+        .pipeline-step.orange::after { border-left-color: #0066cc; }
+        .pipeline-step.aws { background: #ff9900; }
+        .pipeline-step.aws::after { border-left-color: #ff9900; }
+        .pipeline-step.blue { background: #007bff; }
+        .pipeline-step.blue::after { border-left-color: #007bff; }
+        .pipeline-step.green { background: #28a745; }
+        .pipeline-step.green::after { border-left-color: #28a745; }
+        .pipeline-step.purple { background: #6f42c1; }
+        .pipeline-step.purple::after { border-left-color: #6f42c1; }
+        .pipeline-step:last-child::after { display: none; }
+        .pipeline-step small { display: block; opacity: 0.9; font-size: 0.8em; margin-top: 5px; }
+        
+        @media print { 
+            .slide { 
+                box-shadow: none; 
+                margin: 0; 
+                padding: 30px 40px !important;
+                page-break-after: always; 
+                border: none;
+                max-width: 100% !important;
+                width: 210mm !important;
+                min-height: auto !important;
+                color: #333333;
+            }
+            body { 
+                background: white; 
+                margin: 0;
+                padding: 0;
+            }
+            .gl-header, .gl-footer { 
+                display: none;
+            }
+            .slide-header {
+                margin: -30px -40px 20px -40px !important;
+                padding: 10px 40px !important;
+            }
+            .slide-footer {
+                position: relative !important;
+                bottom: auto !important;
+                left: auto !important;
+                right: auto !important;
+                margin-top: 20px;
+                page-break-inside: avoid;
+            }
+            svg {
+                max-width: 100% !important;
+                height: auto !important;
+                page-break-inside: avoid;
+            }
+            .arch-container {
+                max-width: 100% !important;
+                page-break-inside: avoid;
+                margin: 15px 0 !important;
+            }
+            .card, .banking-scenario, .flow-container, 
+            .tip-box, .warning-box, .danger-box, .success-box {
+                page-break-inside: avoid;
+            }
+            table {
+                page-break-inside: avoid;
+                font-size: 0.85em !important;
+            }
+            h1, h2, h3, h4 {
+                page-break-after: avoid;
+            }
+            .grid-2, .grid-3, .grid-4 {
+                gap: 15px !important;
+            }
+            * {
+                color-adjust: exact !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Great Learning Header -->
+<div class="gl-header">
+    <div class="gl-logo">
+        <svg xmlns="http://www.w3.org/2000/svg" width="180" height="56" viewBox="0 0 257 80" fill="none">
+            <g fill-rule="evenodd">
+                <path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"/>
+                <path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"/>
+                <path d="M47.307 61.583l10.626-13.099v-18.09H35.359L26.75 41.022h20.556z" fill="#0066cc"/>
+                <text fill="#0066cc" font-family="Arial, sans-serif" font-size="24" font-weight="bold" x="90" y="35">Great Learning</text>
+                <text fill="#666" font-family="Arial, sans-serif" font-size="12" x="90" y="55">Excellence in Education</text>
+            </g>
+        </svg>
+    </div>
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 5px;">
+        <div class="gl-badge">AWS GenAI Banking Workshop</div>
+        <div style="font-size: 0.7em; color: #ccc; text-align: center;">
+            © Great Learning. All Rights Reserved. | Proprietary content - Unauthorized use prohibited
+        </div>
+    </div>
+</div>
+
+<div class="container">
+
+<!-- SLIDE 1: Day 9 Title -->
+<div class="slide">
+    <!-- Great Learning Header -->
+    <div class="slide-header">
+        <div class="gl-logo">
+            <svg xmlns="http://www.w3.org/2000/svg" width="150" height="40" viewBox="0 0 257 80" fill="none">
+                <g fill-rule="evenodd">
+                    <path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"/>
+                    <path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"/>
+                    <path d="M47.307 61.583l10.626-13.099v-18.09H35.359L26.75 41.022h20.556z" fill="#0066cc"/>
+                    <text fill="#0066cc" font-family="Arial, sans-serif" font-size="20" font-weight="bold" x="90" y="35">Great Learning</text>
+                    <text fill="#666" font-family="Arial, sans-serif" font-size="10" x="90" y="50">Excellence in Education</text>
+                </g>
+            </svg>
+        </div>
+        <div class="gl-badge">AWS GenAI Banking Workshop</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; justify-content: center; height: 75vh; text-align: center;">
+        <span class="day-badge" style="margin-bottom: 30px;">DAY 9 - FINAL DAY</span>
+        <p style="color: #0066cc; font-size: 1.2em; margin-bottom: 20px;">AWS GenAI Banking Workshop Series</p>
+        <h1 style="font-size: 3em; border: none; text-align: center; color: #001a33;">RAG, Knowledge Bases & Bedrock Agents</h1>
+        <p class="subtitle" style="font-size: 1.5em; margin: 20px 0; color: #0066cc;">Advanced GenAI Patterns for Banking</p>
+        <p style="color: #666; font-size: 1.1em; margin-top: 30px;">Retrieval-Augmented Generation & Intelligent Agents</p>
+        
+        <div style="margin-top: 40px;">
+            <span class="time-badge" style="font-size: 1em; padding: 12px 30px;">Full Day | 4 Hours</span>
+        </div>
+        
+        <div style="margin-top: 30px;">
+            <span class="highlight purple">RAG</span>
+            <span class="highlight aws">Knowledge Bases</span>
+            <span class="highlight blue">OpenSearch</span>
+            <span class="highlight green">Agents</span>
+            <span class="highlight orange">LangChain</span>
+        </div>
+        
+        <div style="margin-top: 30px;">
+            <span class="highlight purple">Vector DBs</span>
+            <span class="highlight aws">Embeddings</span>
+            <span class="highlight green">Task Orchestration</span>
+        </div>
+        
+        <p style="margin-top: 40px; color: #999;">Prerequisites: Days 1-8 completed - AWS, ML, AI & Bedrock Foundations</p>
+    </div>
+
+    <!-- Slide Footer -->
+    <div class="slide-footer">
+        <strong>© 2024 Great Learning. All Rights Reserved.</strong> | AWS GenAI Banking Workshop - Day 9 | Proprietary content - Unauthorized use prohibited
+    </div>
+</div>
+
+</div>
+
+<!-- Great Learning Footer -->
+<div class="gl-footer">
+    <div class="gl-footer-logo">
+        <svg xmlns="http://www.w3.org/2000/svg" width="200" height="62" viewBox="0 0 257 80" fill="none">
+            <g fill-rule="evenodd">
+                <path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"/>
+                <path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"/>
+                <path d="M47.307 61.583l10.626-13.099v-18.09H35.359L26.75 41.022h20.556z" fill="#0066cc"/>
+                <text fill="#0066cc" font-family="Arial, sans-serif" font-size="26" font-weight="bold" x="90" y="38">Great Learning</text>
+                <text fill="#999" font-family="Arial, sans-serif" font-size="13" x="90" y="58">Excellence in Education</text>
+            </g>
+        </svg>
+    </div>
+    
+    <div class="gl-copyright">
+        <p style="font-size: 0.9em; margin-bottom: 10px; color: #ffffff;">
+            <strong>AWS GenAI for Banking Workshop - Day 9: RAG, Knowledge Bases & Bedrock Agents</strong>
+        </p>
+        <p style="font-size: 0.8em; color: #cccccc;">
+            © 2024 Great Learning. All Rights Reserved. | This content is proprietary and confidential.
+        </p>
+        <p style="font-size: 0.75em; margin-top: 10px; color: #999999;">
+            Unauthorized reproduction, distribution, or use of this material is strictly prohibited.
+        </p>
+    </div>
+</div>
+
+</body>
+</html>
+
+<!-- SLIDE 2: Day 9 Detailed Agenda -->
+<div class="slide">
+    <div class="slide-header">
+        <div class="gl-logo">
+            <svg xmlns="http://www.w3.org/2000/svg" width="150" height="40" viewBox="0 0 257 80" fill="none">
+                <g fill-rule="evenodd">
+                    <path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"/>
+                    <path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"/>
+                    <path d="M47.307 61.583l10.626-13.099v-18.09H35.359L26.75 41.022h20.556z" fill="#0066cc"/>
+                    <text fill="#0066cc" font-family="Arial, sans-serif" font-size="20" font-weight="bold" x="90" y="35">Great Learning</text>
+                    <text fill="#666" font-family="Arial, sans-serif" font-size="10" x="90" y="50">Excellence in Education</text>
+                </g>
+            </svg>
+        </div>
+        <div class="gl-badge">AWS GenAI Banking Workshop</div>
+    </div>
+
+    <h1 style="color: #333;">📋 Day 9: Detailed Session Agenda</h1>
+    <p class="subtitle">RAG, Knowledge Bases & Bedrock Agents - 4 Hours</p>
+
+    <h2 style="color: #333;">Session Overview</h2>
+    <div class="grid-2">
+        <div class="card aws">
+            <h4 style="color: #333;">🎯 Learning Objectives</h4>
+            <ul>
+                <li style="color: #333;">Master RAG (Retrieval-Augmented Generation)</li>
+                <li style="color: #333;">Build Bedrock Knowledge Bases</li>
+                <li style="color: #333;">Compare vector databases (OpenSearch, FAISS, Pinecone)</li>
+                <li style="color: #333;">Create Bedrock Agents with task orchestration</li>
+                <li style="color: #333;">Implement production RAG workflows</li>
+            </ul>
+        </div>
+        <div class="card orange">
+            <h4 style="color: #333;">🏦 SecureBank Focus</h4>
+            <ul>
+                <li style="color: #333;">Banking policy Q&A with RAG</li>
+                <li style="color: #333;">Regulatory compliance knowledge base</li>
+                <li style="color: #333;">Intelligent loan application agent</li>
+                <li style="color: #333;">Document search with vector DBs</li>
+                <li style="color: #333;">Multi-step banking workflows</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2 style="color: #333;">Detailed Schedule</h2>
+    <table>
+        <tr><th>Time</th><th>Module</th><th>Topic</th><th>Duration</th><th>Activities</th><th>Outcomes</th></tr>
+        <tr>
+            <td>9:00-9:10</td>
+            <td><span class="highlight green">Welcome</span></td>
+            <td>Day 9 Introduction</td>
+            <td>10 min</td>
+            <td>Day 8 Recap, RAG Overview</td>
+            <td>Context Setting</td>
+        </tr>
+        <tr>
+            <td>9:10-10:10</td>
+            <td><span class="highlight purple">Module 1</span></td>
+            <td>Fine-tuning vs RAG</td>
+            <td>60 min</td>
+            <td>Comparison, Decision Tree, Use Cases</td>
+            <td>RAG Understanding</td>
+        </tr>
+        <tr>
+            <td>10:10-10:25</td>
+            <td><span class="highlight purple">Break</span></td>
+            <td>Mid-Morning Break</td>
+            <td>15 min</td>
+            <td>Refreshment, Networking, Q&A</td>
+            <td>Re-energize</td>
+        </tr>
+        <tr>
+            <td>10:25-11:25</td>
+            <td><span class="highlight blue">Module 2</span></td>
+            <td>Knowledge Bases & Vector DBs</td>
+            <td>60 min</td>
+            <td>Architecture, OpenSearch, Embeddings, Lab</td>
+            <td>Knowledge Base Skills</td>
+        </tr>
+        <tr>
+            <td>11:25-12:25</td>
+            <td><span class="highlight aws">Module 3</span></td>
+            <td>Bedrock Agents</td>
+            <td>60 min</td>
+            <td>Agent Architecture, Action Groups, Lab</td>
+            <td>Agent Development</td>
+        </tr>
+        <tr>
+            <td>12:25-12:55</td>
+            <td><span class="highlight green">Module 4</span></td>
+            <td>RAG Implementation</td>
+            <td>30 min</td>
+            <td>LangChain, LlamaIndex, Code Examples</td>
+            <td>Production RAG</td>
+        </tr>
+        <tr>
+            <td>12:55-1:00</td>
+            <td><span class="highlight blue">Wrap-up</span></td>
+            <td>Workshop Closure</td>
+            <td>5 min</td>
+            <td>9-Day Journey, Certificates</td>
+            <td>Workshop Complete</td>
+        </tr>
+    </table>
+
+    <h2 style="color: #333;">Hands-on Labs Overview</h2>
+    <div class="grid-3">
+        <div class="card purple">
+            <h4 style="color: #333;">📚 Lab 1: Knowledge Base</h4>
+            <ul>
+                <li style="color: #333;">Create S3 bucket with docs</li>
+                <li style="color: #333;">Set up OpenSearch collection</li>
+                <li style="color: #333;">Configure Bedrock KB</li>
+                <li style="color: #333;">Test queries</li>
+            </ul>
+        </div>
+        <div class="card green">
+            <h4 style="color: #333;">🦜 Lab 2: LangChain RAG</h4>
+            <ul>
+                <li style="color: #333;">LangChain setup</li>
+                <li style="color: #333;">Vector store integration</li>
+                <li style="color: #333;">Retrieval chain</li>
+                <li style="color: #333;">Conversation memory</li>
+            </ul>
+        </div>
+        <div class="card aws">
+            <h4 style="color: #333;">🤖 Lab 3: Bedrock Agent</h4>
+            <ul>
+                <li style="color: #333;">Create agent in console</li>
+                <li style="color: #333;">Define action groups</li>
+                <li style="color: #333;">Connect knowledge base</li>
+                <li style="color: #333;">Test workflows</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2 style="color: #333;">Prerequisites & Preparation</h2>
+    <div class="grid-2">
+        <div class="card purple">
+            <h4 style="color: #333;">📋 Required Knowledge</h4>
+            <ul>
+                <li style="color: #333;"><strong>Day 1-8 Completion:</strong> AWS, ML, AI, Bedrock</li>
+                <li style="color: #333;"><strong>Python:</strong> boto3, LangChain basics</li>
+                <li style="color: #333;"><strong>GenAI:</strong> LLMs, embeddings, vectors</li>
+                <li style="color: #333;"><strong>Bedrock:</strong> Foundation models, APIs</li>
+            </ul>
+        </div>
+        <div class="card red">
+            <h4 style="color: #333;">🛠️ Tools & Setup</h4>
+            <ul>
+                <li style="color: #333;"><strong>Bedrock Access:</strong> Knowledge Bases, Agents enabled</li>
+                <li style="color: #333;"><strong>OpenSearch:</strong> Serverless collection access</li>
+                <li style="color: #333;"><strong>S3:</strong> Bucket for documents</li>
+                <li style="color: #333;"><strong>Python Libraries:</strong> langchain-aws, opensearch-py</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="success-box">
+        <span class="icon">🎉</span>
+        <div>
+            <strong>Final Day!</strong> Today you'll master the most advanced GenAI patterns - RAG and Agents. These are production-ready techniques used by leading banks worldwide. Let's finish strong!
+        </div>
+    </div>
+
+    <div class="slide-footer">
+        <strong>© 2024 Great Learning. All Rights Reserved.</strong> | AWS GenAI Banking Workshop - Day 9 | Proprietary content - Unauthorized use prohibited
+    </div>
+</div>
+
+
+<!-- SLIDE 3: Module 1 - Fine-tuning vs RAG -->
+<div class="slide">
+    <div class="slide-header">
+        <div class="gl-logo">
+            <svg xmlns="http://www.w3.org/2000/svg" width="150" height="40" viewBox="0 0 257 80" fill="none">
+                <g fill-rule="evenodd">
+                    <path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"/>
+                    <path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"/>
+                    <path d="M47.307 61.583l10.626-13.099v-18.09H35.359L26.75 41.022h20.556z" fill="#0066cc"/>
+                    <text fill="#0066cc" font-family="Arial, sans-serif" font-size="20" font-weight="bold" x="90" y="35">Great Learning</text>
+                    <text fill="#666" font-family="Arial, sans-serif" font-size="10" x="90" y="50">Excellence in Education</text>
+                </g>
+            </svg>
+        </div>
+        <div class="gl-badge">AWS GenAI Banking Workshop</div>
+    </div>
+
+    <span class="module-badge">Module 1: Fine-tuning vs RAG (60 min)</span>
+    <h1 style="color: #333;">🎯 Fine-tuning vs RAG: Choosing the Right Approach</h1>
+    <p class="subtitle">Understanding when to use each technique</p>
+
+    <h2 style="color: #333;">What is RAG (Retrieval-Augmented Generation)?</h2>
+    <div class="grid-2">
+        <div class="card purple">
+            <h4 style="color: #333;">📚 RAG Overview</h4>
+            <ul>
+                <li style="color: #333;"><strong>Retrieval:</strong> Search relevant documents from knowledge base</li>
+                <li style="color: #333;"><strong>Augmentation:</strong> Add retrieved context to user query</li>
+                <li style="color: #333;"><strong>Generation:</strong> LLM generates response with context</li>
+                <li style="color: #333;"><strong>Benefits:</strong> Up-to-date info, citations, no retraining</li>
+            </ul>
+        </div>
+        <div class="card blue">
+            <h4 style="color: #333;">🔧 Fine-tuning Overview</h4>
+            <ul>
+                <li style="color: #333;"><strong>Training:</strong> Retrain model on custom dataset</li>
+                <li style="color: #333;"><strong>Adaptation:</strong> Model learns new behavior/style</li>
+                <li style="color: #333;"><strong>Deployment:</strong> Use fine-tuned model for inference</li>
+                <li style="color: #333;"><strong>Benefits:</strong> Consistent behavior, domain expertise</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2 style="color: #333;">Architecture Comparison</h2>
+    <div class="arch-container">
+        <svg viewBox="0 0 900 400" xmlns="http://www.w3.org/2000/svg">
+            <!-- Fine-tuning Flow -->
+            <text x="50" y="30" font-size="18" font-weight="bold" fill="#0066cc">Fine-tuning Approach</text>
+            
+            <rect x="30" y="50" width="140" height="60" fill="#6f42c1" rx="8"/>
+            <text x="100" y="75" font-size="14" fill="white" text-anchor="middle">Training Data</text>
+            <text x="100" y="95" font-size="11" fill="white" text-anchor="middle">1000s examples</text>
+            
+            <path d="M 170 80 L 210 80" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue)"/>
+            
+            <rect x="210" y="50" width="140" height="60" fill="#dc3545" rx="8"/>
+            <text x="280" y="75" font-size="14" fill="white" text-anchor="middle">Model Training</text>
+            <text x="280" y="95" font-size="11" fill="white" text-anchor="middle">Days/weeks</text>
+            
+            <path d="M 350 80 L 390 80" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue)"/>
+            
+            <rect x="390" y="50" width="140" height="60" fill="#28a745" rx="8"/>
+            <text x="460" y="75" font-size="14" fill="white" text-anchor="middle">Fine-tuned Model</text>
+            <text x="460" y="95" font-size="11" fill="white" text-anchor="middle">$1000s cost</text>
+            
+            <!-- RAG Flow -->
+            <text x="50" y="180" font-size="18" font-weight="bold" fill="#0066cc">RAG Approach</text>
+            
+            <rect x="30" y="200" width="100" height="60" fill="#007bff" rx="8"/>
+            <text x="80" y="225" font-size="14" fill="white" text-anchor="middle">User Query</text>
+            <text x="80" y="245" font-size="11" fill="white" text-anchor="middle">Real-time</text>
+            
+            <path d="M 130 230 L 160 230" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue)"/>
+            
+            <rect x="160" y="200" width="100" height="60" fill="#6f42c1" rx="8"/>
+            <text x="210" y="225" font-size="14" fill="white" text-anchor="middle">Retrieval</text>
+            <text x="210" y="245" font-size="11" fill="white" text-anchor="middle">Vector search</text>
+            
+            <path d="M 260 230 L 290 230" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue)"/>
+            
+            <rect x="290" y="200" width="120" height="60" fill="#ff9900" rx="8"/>
+            <text x="350" y="220" font-size="13" fill="white" text-anchor="middle">Context +</text>
+            <text x="350" y="240" font-size="13" fill="white" text-anchor="middle">Query</text>
+            
+            <path d="M 410 230 L 440 230" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue)"/>
+            
+            <rect x="440" y="200" width="90" height="60" fill="#28a745" rx="8"/>
+            <text x="485" y="225" font-size="14" fill="white" text-anchor="middle">LLM</text>
+            <text x="485" y="245" font-size="11" fill="white" text-anchor="middle">$10s cost</text>
+            
+            <!-- Decision Tree -->
+            <text x="600" y="30" font-size="18" font-weight="bold" fill="#0066cc">Decision Tree</text>
+            
+            <rect x="600" y="50" width="260" height="50" fill="#007bff" rx="8"/>
+            <text x="730" y="75" font-size="13" fill="white" text-anchor="middle">Need model to learn</text>
+            <text x="730" y="92" font-size="13" fill="white" text-anchor="middle">new behavior/style?</text>
+            
+            <path d="M 680 100 L 680 130" stroke="#28a745" stroke-width="3" marker-end="url(#arrowgreen)"/>
+            <text x="660" y="125" font-size="12" fill="#28a745" font-weight="bold">YES</text>
+            
+            <rect x="600" y="130" width="160" height="40" fill="#28a745" rx="8"/>
+            <text x="680" y="155" font-size="14" fill="white" text-anchor="middle" font-weight="bold">Fine-tuning</text>
+            
+            <path d="M 780 100 L 780 180" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue)"/>
+            <text x="790" y="140" font-size="12" fill="#0066cc" font-weight="bold">NO</text>
+            
+            <rect x="700" y="180" width="160" height="50" fill="#6f42c1" rx="8"/>
+            <text x="780" y="200" font-size="13" fill="white" text-anchor="middle">Need up-to-date</text>
+            <text x="780" y="217" font-size="13" fill="white" text-anchor="middle">information?</text>
+            
+            <path d="M 780 230 L 780 260" stroke="#28a745" stroke-width="3" marker-end="url(#arrowgreen)"/>
+            <text x="760" y="255" font-size="12" fill="#28a745" font-weight="bold">YES</text>
+            
+            <rect x="700" y="260" width="160" height="40" fill="#ff9900" rx="8"/>
+            <text x="780" y="285" font-size="14" fill="white" text-anchor="middle" font-weight="bold">RAG</text>
+            
+            <path d="M 700 205 L 620 205" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue)"/>
+            <text x="680" y="200" font-size="12" fill="#0066cc" font-weight="bold">NO</text>
+            
+            <rect x="460" y="185" width="160" height="40" fill="#007bff" rx="8"/>
+            <text x="540" y="210" font-size="13" fill="white" text-anchor="middle" font-weight="bold">Prompt Engineering</text>
+            
+            <!-- Arrow markers -->
+            <defs>
+                <marker id="arrowblue" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L0,6 L9,3 z" fill="#0066cc"/>
+                </marker>
+                <marker id="arrowgreen" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L0,6 L9,3 z" fill="#28a745"/>
+                </marker>
+            </defs>
+        </svg>
+    </div>
+
+    <h2 style="color: #333;">Detailed Comparison</h2>
+    <table>
+        <tr>
+            <th>Aspect</th>
+            <th>Fine-tuning</th>
+            <th>RAG</th>
+            <th>Recommendation</th>
+        </tr>
+        <tr>
+            <td><strong>Cost</strong></td>
+            <td>High ($1000s)</td>
+            <td>Low ($10s)</td>
+            <td><span class="highlight aws">RAG for most cases</span></td>
+        </tr>
+        <tr>
+            <td><strong>Time to Deploy</strong></td>
+            <td>Days/weeks</td>
+            <td>Minutes/hours</td>
+            <td><span class="highlight aws">RAG for speed</span></td>
+        </tr>
+        <tr>
+            <td><strong>Data Required</strong></td>
+            <td>1000s examples</td>
+            <td>Any documents</td>
+            <td><span class="highlight aws">RAG for flexibility</span></td>
+        </tr>
+        <tr>
+            <td><strong>Updates</strong></td>
+            <td>Retrain model</td>
+            <td>Update docs</td>
+            <td><span class="highlight aws">RAG for dynamic data</span></td>
+        </tr>
+        <tr>
+            <td><strong>Accuracy</strong></td>
+            <td>Very high (95%+)</td>
+            <td>High (85-90%)</td>
+            <td><span class="highlight green">Fine-tuning for critical</span></td>
+        </tr>
+        <tr>
+            <td><strong>Explainability</strong></td>
+            <td>Low (black box)</td>
+            <td>High (citations)</td>
+            <td><span class="highlight aws">RAG for transparency</span></td>
+        </tr>
+        <tr>
+            <td><strong>Maintenance</strong></td>
+            <td>High (retraining)</td>
+            <td>Low (doc updates)</td>
+            <td><span class="highlight aws">RAG for ease</span></td>
+        </tr>
+    </table>
+
+    <h2 style="color: #333;">Banking Use Cases</h2>
+    <div class="grid-2">
+        <div class="banking-scenario">
+            <h4>🔧 When to Use Fine-tuning</h4>
+            <ul>
+                <li><strong>Legal Document Generation:</strong> Learn specific legal writing style</li>
+                <li><strong>Credit Risk Modeling:</strong> Domain-specific risk assessment</li>
+                <li><strong>Fraud Detection:</strong> Learn fraud patterns from historical data</li>
+                <li><strong>Regulatory Reporting:</strong> Consistent format and terminology</li>
+            </ul>
+        </div>
+        <div class="banking-scenario">
+            <h4>📚 When to Use RAG</h4>
+            <ul>
+                <li><strong>Banking Policy Q&A:</strong> Up-to-date policy information</li>
+                <li><strong>Product Information:</strong> Current rates and features</li>
+                <li><strong>Regulatory Compliance:</strong> Latest regulations with citations</li>
+                <li><strong>Customer Support:</strong> Knowledge base with source attribution</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="tip-box">
+        <span class="icon">💡</span>
+        <div>
+            <strong>Best Practice:</strong> Start with RAG for most use cases. It's faster, cheaper, and easier to maintain. Use fine-tuning only when you need the model to learn new behavior or achieve very high accuracy for critical tasks.
+        </div>
+    </div>
+
+    <div class="slide-footer">
+        <strong>© 2024 Great Learning. All Rights Reserved.</strong> | AWS GenAI Banking Workshop - Day 9 | Proprietary content - Unauthorized use prohibited
+    </div>
+</div>
+
+
+<!-- SLIDE 4: Module 2 - Knowledge Bases Architecture -->
+<div class="slide">
+    <div class="slide-header">
+        <div class="gl-logo">
+            <svg xmlns="http://www.w3.org/2000/svg" width="150" height="40" viewBox="0 0 257 80" fill="none">
+                <g fill-rule="evenodd">
+                    <path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"/>
+                    <path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"/>
+                    <path d="M47.307 61.583l10.626-13.099v-18.09H35.359L26.75 41.022h20.556z" fill="#0066cc"/>
+                    <text fill="#0066cc" font-family="Arial, sans-serif" font-size="20" font-weight="bold" x="90" y="35">Great Learning</text>
+                    <text fill="#666" font-family="Arial, sans-serif" font-size="10" x="90" y="50">Excellence in Education</text>
+                </g>
+            </svg>
+        </div>
+        <div class="gl-badge">AWS GenAI Banking Workshop</div>
+    </div>
+
+    <span class="module-badge">Module 2: Knowledge Bases & Vector DBs (60 min)</span>
+    <h1 style="color: #333;">📚 Bedrock Knowledge Bases Architecture</h1>
+    <p class="subtitle">Vector databases and semantic search</p>
+
+    <h2 style="color: #333;">Knowledge Bases Architecture (5 Layers)</h2>
+    <div class="arch-container">
+        <svg viewBox="0 0 900 500" xmlns="http://www.w3.org/2000/svg">
+            <!-- Layer 1: Data Sources -->
+            <rect x="50" y="30" width="800" height="80" fill="#007bff" rx="8"/>
+            <text x="450" y="55" font-size="16" fill="white" text-anchor="middle" font-weight="bold">Layer 1: Data Sources</text>
+            <text x="150" y="80" font-size="13" fill="white">📁 S3 Buckets</text>
+            <text x="300" y="80" font-size="13" fill="white">📄 Confluence</text>
+            <text x="450" y="80" font-size="13" fill="white">📊 SharePoint</text>
+            <text x="600" y="80" font-size="13" fill="white">🌐 Web Crawlers</text>
+            <text x="750" y="80" font-size="13" fill="white">💾 Databases</text>
+            
+            <path d="M 450 110 L 450 140" stroke="#0066cc" stroke-width="4" marker-end="url(#arrowblue2)"/>
+            
+            <!-- Layer 2: Ingestion & Chunking -->
+            <rect x="50" y="140" width="800" height="80" fill="#6f42c1" rx="8"/>
+            <text x="450" y="165" font-size="16" fill="white" text-anchor="middle" font-weight="bold">Layer 2: Ingestion & Chunking</text>
+            <text x="200" y="195" font-size="13" fill="white">✂️ Text Splitting (500-1000 tokens)</text>
+            <text x="500" y="195" font-size="13" fill="white">🏷️ Metadata Extraction</text>
+            <text x="700" y="195" font-size="13" fill="white">🔄 Preprocessing</text>
+            
+            <path d="M 450 220 L 450 250" stroke="#0066cc" stroke-width="4" marker-end="url(#arrowblue2)"/>
+            
+            <!-- Layer 3: Embeddings -->
+            <rect x="50" y="250" width="800" height="80" fill="#ff9900" rx="8"/>
+            <text x="450" y="275" font-size="16" fill="white" text-anchor="middle" font-weight="bold">Layer 3: Embeddings Generation</text>
+            <text x="250" y="305" font-size="13" fill="white">🤖 Titan Embeddings (1536 dims)</text>
+            <text x="550" y="305" font-size="13" fill="white">🔢 Vector Representation</text>
+            
+            <path d="M 450 330 L 450 360" stroke="#0066cc" stroke-width="4" marker-end="url(#arrowblue2)"/>
+            
+            <!-- Layer 4: Vector Store -->
+            <rect x="50" y="360" width="800" height="80" fill="#28a745" rx="8"/>
+            <text x="450" y="385" font-size="16" fill="white" text-anchor="middle" font-weight="bold">Layer 4: Vector Store</text>
+            <text x="200" y="415" font-size="13" fill="white">🔍 OpenSearch Serverless</text>
+            <text x="400" y="415" font-size="13" fill="white">⚡ FAISS</text>
+            <text x="550" y="415" font-size="13" fill="white">📌 Pinecone</text>
+            <text x="700" y="415" font-size="13" fill="white">🌊 Weaviate</text>
+            
+            <path d="M 450 440 L 450 470" stroke="#0066cc" stroke-width="4" marker-end="url(#arrowblue2)"/>
+            
+            <!-- Layer 5: Query & Retrieval -->
+            <rect x="50" y="470" width="800" height="80" fill="#dc3545" rx="8"/>
+            <text x="450" y="495" font-size="16" fill="white" text-anchor="middle" font-weight="bold">Layer 5: Query & Retrieval</text>
+            <text x="250" y="525" font-size="13" fill="white">🔎 Semantic Search (cosine similarity)</text>
+            <text x="600" y="525" font-size="13" fill="white">🔀 Hybrid Search (keyword + vector)</text>
+            
+            <defs>
+                <marker id="arrowblue2" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L0,6 L9,3 z" fill="#0066cc"/>
+                </marker>
+            </defs>
+        </svg>
+    </div>
+
+    <h2 style="color: #333;">Vector Database Comparison</h2>
+    <table>
+        <tr>
+            <th>Feature</th>
+            <th>OpenSearch</th>
+            <th>FAISS</th>
+            <th>Pinecone</th>
+            <th>Weaviate</th>
+        </tr>
+        <tr>
+            <td><strong>Type</strong></td>
+            <td>Managed Service</td>
+            <td>Library</td>
+            <td>Managed Service</td>
+            <td>Managed/Self-hosted</td>
+        </tr>
+        <tr>
+            <td><strong>Hosting</strong></td>
+            <td>AWS Native</td>
+            <td>Self-hosted</td>
+            <td>Cloud (Multi-region)</td>
+            <td>Cloud/On-prem</td>
+        </tr>
+        <tr>
+            <td><strong>Scalability</strong></td>
+            <td><span class="highlight green">High (auto-scale)</span></td>
+            <td><span class="highlight orange">Medium</span></td>
+            <td><span class="highlight green">High (auto-scale)</span></td>
+            <td><span class="highlight green">High</span></td>
+        </tr>
+        <tr>
+            <td><strong>Cost</strong></td>
+            <td>$0.10/hr (OCU)</td>
+            <td>Free (compute only)</td>
+            <td>$0.096/hr (pod)</td>
+            <td>$0.095/hr</td>
+        </tr>
+        <tr>
+            <td><strong>Hybrid Search</strong></td>
+            <td><span class="highlight green">✅ Yes</span></td>
+            <td><span class="highlight red">❌ No</span></td>
+            <td><span class="highlight green">✅ Yes</span></td>
+            <td><span class="highlight green">✅ Yes</span></td>
+        </tr>
+        <tr>
+            <td><strong>Metadata Filtering</strong></td>
+            <td><span class="highlight green">✅ Advanced</span></td>
+            <td><span class="highlight orange">⚠️ Limited</span></td>
+            <td><span class="highlight green">✅ Advanced</span></td>
+            <td><span class="highlight green">✅ Advanced</span></td>
+        </tr>
+        <tr>
+            <td><strong>AWS Integration</strong></td>
+            <td><span class="highlight green">✅ Native</span></td>
+            <td><span class="highlight green">✅ Good</span></td>
+            <td><span class="highlight orange">⚠️ API</span></td>
+            <td><span class="highlight orange">⚠️ API</span></td>
+        </tr>
+        <tr>
+            <td><strong>Best For</strong></td>
+            <td>AWS users, production</td>
+            <td>Prototyping, research</td>
+            <td>Multi-cloud production</td>
+            <td>ML applications</td>
+        </tr>
+    </table>
+
+    <h2 style="color: #333;">Vector Search Workflow</h2>
+    <div class="flow-container">
+        <div class="flow-step">
+            <div class="flow-number">1</div>
+            <div class="flow-content">
+                <div class="flow-title">User Query</div>
+                <div class="flow-description">"What is the mortgage approval process?"</div>
+            </div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        
+        <div class="flow-step">
+            <div class="flow-number">2</div>
+            <div class="flow-content">
+                <div class="flow-title">Query Embedding</div>
+                <div class="flow-description">Convert query to 1536-dimensional vector using Titan Embeddings</div>
+            </div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        
+        <div class="flow-step">
+            <div class="flow-number">3</div>
+            <div class="flow-content">
+                <div class="flow-title">Vector Similarity Search</div>
+                <div class="flow-description">Calculate cosine similarity between query vector and document vectors</div>
+            </div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        
+        <div class="flow-step">
+            <div class="flow-number">4</div>
+            <div class="flow-content">
+                <div class="flow-title">Top-K Retrieval</div>
+                <div class="flow-description">Retrieve top 3-5 most similar documents (k=3 default)</div>
+            </div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        
+        <div class="flow-step">
+            <div class="flow-number">5</div>
+            <div class="flow-content">
+                <div class="flow-title">Context Assembly</div>
+                <div class="flow-description">Combine retrieved documents with metadata and sources</div>
+            </div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        
+        <div class="flow-step">
+            <div class="flow-number">6</div>
+            <div class="flow-content">
+                <div class="flow-title">LLM Inference</div>
+                <div class="flow-description">Send context + query to Claude 4.5 for generation</div>
+            </div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        
+        <div class="flow-step">
+            <div class="flow-number">7</div>
+            <div class="flow-content">
+                <div class="flow-title">Response Generation</div>
+                <div class="flow-description">Return answer with source citations and confidence score</div>
+            </div>
+        </div>
+    </div>
+
+    <h2 style="color: #333;">Chunking Strategies</h2>
+    <div class="grid-3">
+        <div class="card purple">
+            <h4 style="color: #333;">📏 Fixed Size</h4>
+            <ul>
+                <li style="color: #333;"><strong>Size:</strong> 500-1000 tokens</li>
+                <li style="color: #333;"><strong>Overlap:</strong> 50-100 tokens</li>
+                <li style="color: #333;"><strong>Pros:</strong> Simple, consistent</li>
+                <li style="color: #333;"><strong>Cons:</strong> May split context</li>
+            </ul>
+        </div>
+        <div class="card green">
+            <h4 style="color: #333;">📄 Semantic</h4>
+            <ul>
+                <li style="color: #333;"><strong>Method:</strong> Split by paragraphs</li>
+                <li style="color: #333;"><strong>Size:</strong> Variable</li>
+                <li style="color: #333;"><strong>Pros:</strong> Preserves meaning</li>
+                <li style="color: #333;"><strong>Cons:</strong> Complex logic</li>
+            </ul>
+        </div>
+        <div class="card aws">
+            <h4 style="color: #333;">🎯 Hybrid</h4>
+            <ul>
+                <li style="color: #333;"><strong>Method:</strong> Semantic + size limit</li>
+                <li style="color: #333;"><strong>Size:</strong> Max 1000 tokens</li>
+                <li style="color: #333;"><strong>Pros:</strong> Best of both</li>
+                <li style="color: #333;"><strong>Cons:</strong> Most complex</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="banking-scenario">
+        <h4>🏦 SecureBank Example: Banking Policy Knowledge Base</h4>
+        <ul>
+            <li><strong>Data Source:</strong> 500 policy documents in S3 (mortgage, loans, compliance)</li>
+            <li><strong>Chunking:</strong> 800 tokens with 100 token overlap = 2,500 chunks</li>
+            <li><strong>Embeddings:</strong> Titan Embeddings (1536 dims) = 3.8M vectors</li>
+            <li><strong>Vector Store:</strong> OpenSearch Serverless (2 OCUs) = $0.20/hr = $144/month</li>
+            <li><strong>Query Performance:</strong> <100ms latency, 95% accuracy</li>
+        </ul>
+    </div>
+
+    <div class="tip-box">
+        <span class="icon">💡</span>
+        <div>
+            <strong>Best Practice:</strong> For banking documents, use hybrid chunking with 800 tokens and 100 token overlap. This preserves context while keeping chunks manageable. Always include metadata (document name, section, date) for better filtering.
+        </div>
+    </div>
+
+    <div class="slide-footer">
+        <strong>© 2024 Great Learning. All Rights Reserved.</strong> | AWS GenAI Banking Workshop - Day 9 | Proprietary content - Unauthorized use prohibited
+    </div>
+</div>
+
+
+<!-- SLIDE 5: Module 3 - Bedrock Agents -->
+<div class="slide">
+    <div class="slide-header">
+        <div class="gl-logo">
+            <svg xmlns="http://www.w3.org/2000/svg" width="150" height="40" viewBox="0 0 257 80" fill="none">
+                <g fill-rule="evenodd">
+                    <path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"/>
+                    <path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"/>
+                    <path d="M47.307 61.583l10.626-13.099v-18.09H35.359L26.75 41.022h20.556z" fill="#0066cc"/>
+                    <text fill="#0066cc" font-family="Arial, sans-serif" font-size="20" font-weight="bold" x="90" y="35">Great Learning</text>
+                    <text fill="#666" font-family="Arial, sans-serif" font-size="10" x="90" y="50">Excellence in Education</text>
+                </g>
+            </svg>
+        </div>
+        <div class="gl-badge">AWS GenAI Banking Workshop</div>
+    </div>
+
+    <span class="module-badge">Module 3: Bedrock Agents (60 min)</span>
+    <h1 style="color: #333;">🤖 Bedrock Agents & Task Orchestration</h1>
+    <p class="subtitle">Intelligent agents with action groups and knowledge bases</p>
+
+    <h2 style="color: #333;">What are Bedrock Agents?</h2>
+    <div class="grid-2">
+        <div class="card aws">
+            <h4 style="color: #333;">🤖 Agent Overview</h4>
+            <ul>
+                <li style="color: #333;"><strong>Definition:</strong> Autonomous AI that can plan and execute tasks</li>
+                <li style="color: #333;"><strong>Orchestration:</strong> Breaks complex requests into steps</li>
+                <li style="color: #333;"><strong>Actions:</strong> Calls APIs and Lambda functions</li>
+                <li style="color: #333;"><strong>Knowledge:</strong> Retrieves info from knowledge bases</li>
+            </ul>
+        </div>
+        <div class="card purple">
+            <h4 style="color: #333;">🎯 Key Components</h4>
+            <ul>
+                <li style="color: #333;"><strong>Foundation Model:</strong> Claude 4.5 for reasoning</li>
+                <li style="color: #333;"><strong>Action Groups:</strong> Lambda functions for tasks</li>
+                <li style="color: #333;"><strong>Knowledge Bases:</strong> RAG for information</li>
+                <li style="color: #333;"><strong>Instructions:</strong> Agent behavior and personality</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2 style="color: #333;">Bedrock Agent Architecture (6 Layers)</h2>
+    <div class="arch-container">
+        <svg viewBox="0 0 900 550" xmlns="http://www.w3.org/2000/svg">
+            <!-- Layer 1: User Input -->
+            <rect x="50" y="30" width="800" height="70" fill="#007bff" rx="8"/>
+            <text x="450" y="55" font-size="16" fill="white" text-anchor="middle" font-weight="bold">Layer 1: User Input</text>
+            <text x="450" y="80" font-size="13" fill="white" text-anchor="middle">"Transfer $500 from savings to checking and show me my balance"</text>
+            
+            <path d="M 450 100 L 450 125" stroke="#0066cc" stroke-width="4" marker-end="url(#arrowblue3)"/>
+            
+            <!-- Layer 2: Agent Orchestration -->
+            <rect x="50" y="125" width="800" height="70" fill="#6f42c1" rx="8"/>
+            <text x="450" y="150" font-size="16" fill="white" text-anchor="middle" font-weight="bold">Layer 2: Agent Orchestration (ReAct Loop)</text>
+            <text x="450" y="175" font-size="13" fill="white" text-anchor="middle">Planning → Reasoning → Action Selection → Execution</text>
+            
+            <path d="M 450 195 L 450 220" stroke="#0066cc" stroke-width="4" marker-end="url(#arrowblue3)"/>
+            
+            <!-- Layer 3: Action Groups -->
+            <rect x="50" y="220" width="380" height="70" fill="#ff9900" rx="8"/>
+            <text x="240" y="245" font-size="16" fill="white" text-anchor="middle" font-weight="bold">Layer 3A: Action Groups</text>
+            <text x="150" y="270" font-size="12" fill="white">⚡ TransferMoney</text>
+            <text x="280" y="270" font-size="12" fill="white">💰 CheckBalance</text>
+            
+            <!-- Layer 3: Knowledge Bases -->
+            <rect x="470" y="220" width="380" height="70" fill="#28a745" rx="8"/>
+            <text x="660" y="245" font-size="16" fill="white" text-anchor="middle" font-weight="bold">Layer 3B: Knowledge Bases</text>
+            <text x="660" y="270" font-size="12" fill="white" text-anchor="middle">📚 Banking Policies & FAQs</text>
+            
+            <path d="M 240 290 L 240 315" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue3)"/>
+            <path d="M 660 290 L 660 315" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue3)"/>
+            
+            <!-- Layer 4: Lambda Functions -->
+            <rect x="50" y="315" width="380" height="70" fill="#dc3545" rx="8"/>
+            <text x="240" y="340" font-size="16" fill="white" text-anchor="middle" font-weight="bold">Layer 4A: Lambda Functions</text>
+            <text x="240" y="365" font-size="12" fill="white" text-anchor="middle">Execute banking operations via APIs</text>
+            
+            <!-- Layer 4: Vector Search -->
+            <rect x="470" y="315" width="380" height="70" fill="#007bff" rx="8"/>
+            <text x="660" y="340" font-size="16" fill="white" text-anchor="middle" font-weight="bold">Layer 4B: Vector Search</text>
+            <text x="660" y="365" font-size="12" fill="white" text-anchor="middle">Retrieve relevant documents</text>
+            
+            <path d="M 240 385 L 240 410" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue3)"/>
+            <path d="M 660 385 L 660 410" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue3)"/>
+            
+            <!-- Layer 5: Foundation Model -->
+            <rect x="50" y="410" width="800" height="70" fill="#6f42c1" rx="8"/>
+            <text x="450" y="435" font-size="16" fill="white" text-anchor="middle" font-weight="bold">Layer 5: Foundation Model (Claude Sonnet 4.5)</text>
+            <text x="450" y="460" font-size="13" fill="white" text-anchor="middle">Reasoning, Planning, Response Generation</text>
+            
+            <path d="M 450 480 L 450 505" stroke="#0066cc" stroke-width="4" marker-end="url(#arrowblue3)"/>
+            
+            <!-- Layer 6: Response -->
+            <rect x="50" y="505" width="800" height="70" fill="#28a745" rx="8"/>
+            <text x="450" y="530" font-size="16" fill="white" text-anchor="middle" font-weight="bold">Layer 6: Response Generation</text>
+            <text x="450" y="555" font-size="13" fill="white" text-anchor="middle">"Transfer complete. Your checking balance is $2,500."</text>
+            
+            <defs>
+                <marker id="arrowblue3" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L0,6 L9,3 z" fill="#0066cc"/>
+                </marker>
+            </defs>
+        </svg>
+    </div>
+
+    <h2 style="color: #333;">ReAct Loop: Agent Workflow & Orchestration</h2>
+    <div class="flow-container">
+        <div class="flow-step">
+            <div class="flow-number">1</div>
+            <div class="flow-content">
+                <div class="flow-title">💭 Thought (Reasoning)</div>
+                <div class="flow-description">"User wants to transfer money and check balance. I need to: 1) Transfer $500, 2) Check balance"</div>
+            </div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        
+        <div class="flow-step">
+            <div class="flow-number">2</div>
+            <div class="flow-content">
+                <div class="flow-title">⚡ Action (Tool Selection)</div>
+                <div class="flow-description">Select "TransferMoney" action with parameters: {from: "savings", to: "checking", amount: 500}</div>
+            </div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        
+        <div class="flow-step">
+            <div class="flow-number">3</div>
+            <div class="flow-content">
+                <div class="flow-title">👁️ Observation (Result)</div>
+                <div class="flow-description">Lambda returns: {"status": "success", "transactionId": "TXN123"}</div>
+            </div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        
+        <div class="flow-step">
+            <div class="flow-number">4</div>
+            <div class="flow-content">
+                <div class="flow-title">💭 Thought (Next Step)</div>
+                <div class="flow-description">"Transfer successful. Now I need to check the checking account balance"</div>
+            </div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        
+        <div class="flow-step">
+            <div class="flow-number">5</div>
+            <div class="flow-content">
+                <div class="flow-title">⚡ Action (Tool Selection)</div>
+                <div class="flow-description">Select "CheckBalance" action with parameters: {account: "checking"}</div>
+            </div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        
+        <div class="flow-step">
+            <div class="flow-number">6</div>
+            <div class="flow-content">
+                <div class="flow-title">👁️ Observation (Result)</div>
+                <div class="flow-description">Lambda returns: {"balance": 2500, "currency": "USD"}</div>
+            </div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        
+        <div class="flow-step">
+            <div class="flow-number">7</div>
+            <div class="flow-content">
+                <div class="flow-title">✅ Final Answer</div>
+                <div class="flow-description">"Transfer complete. Your checking balance is $2,500."</div>
+            </div>
+        </div>
+    </div>
+
+    <h2 style="color: #333;">Action Groups vs Knowledge Bases</h2>
+    <div class="grid-2">
+        <div class="card aws">
+            <h4 style="color: #333;">⚡ Action Groups</h4>
+            <ul>
+                <li style="color: #333;"><strong>Purpose:</strong> Execute tasks and operations</li>
+                <li style="color: #333;"><strong>Implementation:</strong> Lambda functions with OpenAPI schema</li>
+                <li style="color: #333;"><strong>Examples:</strong> Transfer money, check balance, create account</li>
+                <li style="color: #333;"><strong>When to Use:</strong> Need to perform actions or call APIs</li>
+            </ul>
+        </div>
+        <div class="card green">
+            <h4 style="color: #333;">📚 Knowledge Bases</h4>
+            <ul>
+                <li style="color: #333;"><strong>Purpose:</strong> Retrieve information and answer questions</li>
+                <li style="color: #333;"><strong>Implementation:</strong> Vector search with RAG</li>
+                <li style="color: #333;"><strong>Examples:</strong> Policy lookup, FAQ answers, document search</li>
+                <li style="color: #333;"><strong>When to Use:</strong> Need to provide information with citations</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2 style="color: #333;">Banking Agent Use Cases</h2>
+    <div class="grid-3">
+        <div class="banking-scenario">
+            <h4>💰 Loan Application Agent</h4>
+            <ul>
+                <li>Collect customer information</li>
+                <li>Check credit score (action)</li>
+                <li>Retrieve loan policies (KB)</li>
+                <li>Calculate loan terms (action)</li>
+                <li>Submit application (action)</li>
+            </ul>
+        </div>
+        <div class="banking-scenario">
+            <h4>🏦 Account Management Agent</h4>
+            <ul>
+                <li>Check balances (action)</li>
+                <li>Transfer money (action)</li>
+                <li>Update profile (action)</li>
+                <li>Answer FAQs (KB)</li>
+                <li>Order cards (action)</li>
+            </ul>
+        </div>
+        <div class="banking-scenario">
+            <h4>📊 Investment Advisory Agent</h4>
+            <ul>
+                <li>Analyze portfolio (action)</li>
+                <li>Retrieve market data (action)</li>
+                <li>Get investment policies (KB)</li>
+                <li>Recommend investments (KB)</li>
+                <li>Execute trades (action)</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="tip-box">
+        <span class="icon">💡</span>
+        <div>
+            <strong>Best Practice:</strong> Combine action groups and knowledge bases in a single agent. Use action groups for operations (transfers, updates) and knowledge bases for information retrieval (policies, FAQs). This creates a powerful agent that can both answer questions and take actions.
+        </div>
+    </div>
+
+    <div class="slide-footer">
+        <strong>© 2024 Great Learning. All Rights Reserved.</strong> | AWS GenAI Banking Workshop - Day 9 | Proprietary content - Unauthorized use prohibited
+    </div>
+</div>
+
+
+<!-- SLIDE 6: Module 4 - RAG Implementation -->
+<div class="slide">
+    <div class="slide-header">
+        <div class="gl-logo">
+            <svg xmlns="http://www.w3.org/2000/svg" width="150" height="40" viewBox="0 0 257 80" fill="none">
+                <g fill-rule="evenodd">
+                    <path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"/>
+                    <path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"/>
+                    <path d="M47.307 61.583l10.626-13.099v-18.09H35.359L26.75 41.022h20.556z" fill="#0066cc"/>
+                    <text fill="#0066cc" font-family="Arial, sans-serif" font-size="20" font-weight="bold" x="90" y="35">Great Learning</text>
+                    <text fill="#666" font-family="Arial, sans-serif" font-size="10" x="90" y="50">Excellence in Education</text>
+                </g>
+            </svg>
+        </div>
+        <div class="gl-badge">AWS GenAI Banking Workshop</div>
+    </div>
+
+    <span class="module-badge">Module 4: RAG Implementation (30 min)</span>
+    <h1 style="color: #333;">🦜 Production RAG with LangChain & LlamaIndex</h1>
+    <p class="subtitle">Building enterprise-grade RAG workflows</p>
+
+    <h2 style="color: #333;">End-to-End RAG Pipeline for Banking</h2>
+    <div class="arch-container">
+        <svg viewBox="0 0 900 400" xmlns="http://www.w3.org/2000/svg">
+            <!-- Document Ingestion -->
+            <rect x="30" y="30" width="120" height="60" fill="#007bff" rx="8"/>
+            <text x="90" y="55" font-size="13" fill="white" text-anchor="middle">📁 Documents</text>
+            <text x="90" y="75" font-size="11" fill="white" text-anchor="middle">S3 Bucket</text>
+            
+            <path d="M 150 60 L 190 60" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue4)"/>
+            
+            <!-- Chunking -->
+            <rect x="190" y="30" width="120" height="60" fill="#6f42c1" rx="8"/>
+            <text x="250" y="55" font-size="13" fill="white" text-anchor="middle">✂️ Chunking</text>
+            <text x="250" y="75" font-size="11" fill="white" text-anchor="middle">800 tokens</text>
+            
+            <path d="M 310 60 L 350 60" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue4)"/>
+            
+            <!-- Embeddings -->
+            <rect x="350" y="30" width="120" height="60" fill="#ff9900" rx="8"/>
+            <text x="410" y="55" font-size="13" fill="white" text-anchor="middle">🤖 Embeddings</text>
+            <text x="410" y="75" font-size="11" fill="white" text-anchor="middle">Titan 1536d</text>
+            
+            <path d="M 470 60 L 510 60" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue4)"/>
+            
+            <!-- Vector Store -->
+            <rect x="510" y="30" width="120" height="60" fill="#28a745" rx="8"/>
+            <text x="570" y="55" font-size="13" fill="white" text-anchor="middle">🔍 Vector Store</text>
+            <text x="570" y="75" font-size="11" fill="white" text-anchor="middle">OpenSearch</text>
+            
+            <!-- Query Processing -->
+            <rect x="30" y="150" width="120" height="60" fill="#007bff" rx="8"/>
+            <text x="90" y="175" font-size="13" fill="white" text-anchor="middle">❓ User Query</text>
+            <text x="90" y="195" font-size="11" fill="white" text-anchor="middle">Natural language</text>
+            
+            <path d="M 150 180 L 190 180" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue4)"/>
+            
+            <!-- Query Embedding -->
+            <rect x="190" y="150" width="120" height="60" fill="#ff9900" rx="8"/>
+            <text x="250" y="175" font-size="13" fill="white" text-anchor="middle">🔢 Embed Query</text>
+            <text x="250" y="195" font-size="11" fill="white" text-anchor="middle">Vector</text>
+            
+            <path d="M 310 180 L 350 180" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue4)"/>
+            
+            <!-- Retrieval -->
+            <rect x="350" y="150" width="120" height="60" fill="#28a745" rx="8"/>
+            <text x="410" y="175" font-size="13" fill="white" text-anchor="middle">🔎 Retrieval</text>
+            <text x="410" y="195" font-size="11" fill="white" text-anchor="middle">Top-K docs</text>
+            
+            <path d="M 470 180 L 510 180" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue4)"/>
+            
+            <!-- Context Assembly -->
+            <rect x="510" y="150" width="120" height="60" fill="#6f42c1" rx="8"/>
+            <text x="570" y="175" font-size="13" fill="white" text-anchor="middle">📋 Context</text>
+            <text x="570" y="195" font-size="11" fill="white" text-anchor="middle">Assembly</text>
+            
+            <path d="M 630 180 L 670 180" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue4)"/>
+            
+            <!-- LLM Generation -->
+            <rect x="670" y="150" width="120" height="60" fill="#dc3545" rx="8"/>
+            <text x="730" y="175" font-size="13" fill="white" text-anchor="middle">🧠 LLM</text>
+            <text x="730" y="195" font-size="11" fill="white" text-anchor="middle">Claude 4.5</text>
+            
+            <path d="M 790 180 L 830 180" stroke="#0066cc" stroke-width="3" marker-end="url(#arrowblue4)"/>
+            
+            <!-- Response -->
+            <rect x="830" y="150" width="120" height="60" fill="#28a745" rx="8"/>
+            <text x="890" y="175" font-size="13" fill="white" text-anchor="middle">✅ Response</text>
+            <text x="890" y="195" font-size="11" fill="white" text-anchor="middle">+ Citations</text>
+            
+            <!-- Connecting lines -->
+            <path d="M 570 90 L 570 120 L 410 120 L 410 150" stroke="#999" stroke-width="2" stroke-dasharray="5,5"/>
+            <text x="490" y="115" font-size="11" fill="#666">Indexed documents</text>
+            
+            <defs>
+                <marker id="arrowblue4" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L0,6 L9,3 z" fill="#0066cc"/>
+                </marker>
+            </defs>
+            
+            <!-- Labels -->
+            <text x="320" y="25" font-size="14" fill="#0066cc" font-weight="bold">Ingestion Phase (One-time)</text>
+            <text x="400" y="145" font-size="14" fill="#0066cc" font-weight="bold">Query Phase (Real-time)</text>
+        </svg>
+    </div>
+
+    <h2 style="color: #333;">LangChain RAG Implementation</h2>
+    <div class="grid-2">
+        <div>
+            <h3 style="color: #333;">1️⃣ Basic RAG with LangChain</h3>
+            <div class="code-block"><span class="keyword">from</span> langchain_aws <span class="keyword">import</span> BedrockLLM, BedrockEmbeddings
+<span class="keyword">from</span> langchain_community.vectorstores <span class="keyword">import</span> OpenSearchVectorSearch
+<span class="keyword">from</span> langchain.chains <span class="keyword">import</span> RetrievalQA
+
+<span class="comment"># Initialize Bedrock LLM</span>
+llm = <span class="function">BedrockLLM</span>(
+    model_id=<span class="string">"anthropic.claude-sonnet-4-5-20250929-v1:0"</span>,
+    region_name=<span class="string">"us-east-1"</span>
+)
+
+<span class="comment"># Initialize embeddings</span>
+embeddings = <span class="function">BedrockEmbeddings</span>(
+    model_id=<span class="string">"amazon.titan-embed-text-v1"</span>
+)
+
+<span class="comment"># Connect to OpenSearch vector store</span>
+vector_store = <span class="function">OpenSearchVectorSearch</span>(
+    opensearch_url=<span class="string">"https://your-opensearch-endpoint"</span>,
+    index_name=<span class="string">"banking-docs"</span>,
+    embedding_function=embeddings
+)
+
+<span class="comment"># Create RAG chain</span>
+qa_chain = RetrievalQA.<span class="function">from_chain_type</span>(
+    llm=llm,
+    retriever=vector_store.<span class="function">as_retriever</span>(
+        search_kwargs={<span class="string">"k"</span>: 3}  <span class="comment"># Top 3 docs</span>
+    )
+)
+
+<span class="comment"># Query</span>
+result = qa_chain(<span class="string">"What is the mortgage approval process?"</span>)
+<span class="function">print</span>(result)</div>
+        </div>
+        <div>
+            <h3 style="color: #333;">2️⃣ RAG with Source Citations</h3>
+            <div class="code-block"><span class="keyword">from</span> langchain.chains <span class="keyword">import</span> RetrievalQAWithSourcesChain
+
+<span class="comment"># Create chain with sources</span>
+qa_with_sources = RetrievalQAWithSourcesChain.<span class="function">from_chain_type</span>(
+    llm=llm,
+    retriever=vector_store.<span class="function">as_retriever</span>(
+        search_kwargs={<span class="string">"k"</span>: 3}
+    ),
+    return_source_documents=<span class="keyword">True</span>
+)
+
+<span class="comment"># Query with citations</span>
+result = qa_with_sources(
+    <span class="string">"What are the KYC requirements for corporate accounts?"</span>
+)
+
+<span class="function">print</span>(<span class="string">f"Answer: {result['answer']}"</span>)
+<span class="function">print</span>(<span class="string">f"Sources: {result['sources']}"</span>)
+
+<span class="comment"># Print source documents</span>
+<span class="keyword">for</span> doc <span class="keyword">in</span> result[<span class="string">'source_documents'</span>]:
+    <span class="function">print</span>(<span class="string">f"- {doc.metadata['source']}"</span>)</div>
+        </div>
+    </div>
+
+    <div class="grid-2" style="margin-top: 20px;">
+        <div>
+            <h3 style="color: #333;">3️⃣ Conversational RAG</h3>
+            <div class="code-block"><span class="keyword">from</span> langchain.chains <span class="keyword">import</span> ConversationalRetrievalChain
+<span class="keyword">from</span> langchain.memory <span class="keyword">import</span> ConversationBufferMemory
+
+<span class="comment"># Add conversation memory</span>
+memory = <span class="function">ConversationBufferMemory</span>(
+    memory_key=<span class="string">"chat_history"</span>,
+    return_messages=<span class="keyword">True</span>,
+    output_key=<span class="string">"answer"</span>
+)
+
+<span class="comment"># Create conversational chain</span>
+conversation_chain = ConversationalRetrievalChain.<span class="function">from_llm</span>(
+    llm=llm,
+    retriever=vector_store.<span class="function">as_retriever</span>(),
+    memory=memory
+)
+
+<span class="comment"># Multi-turn conversation</span>
+response1 = conversation_chain(
+    <span class="string">"What savings account types do you offer?"</span>
+)
+response2 = conversation_chain(
+    <span class="string">"What are the interest rates?"</span>  <span class="comment"># Remembers context</span>
+)</div>
+        </div>
+        <div>
+            <h3 style="color: #333;">4️⃣ LlamaIndex RAG</h3>
+            <div class="code-block"><span class="keyword">from</span> llama_index.llms.bedrock <span class="keyword">import</span> Bedrock
+<span class="keyword">from</span> llama_index.embeddings.bedrock <span class="keyword">import</span> BedrockEmbedding
+<span class="keyword">from</span> llama_index.core <span class="keyword">import</span> VectorStoreIndex, ServiceContext
+
+<span class="comment"># Initialize LlamaIndex with Bedrock</span>
+llm = <span class="function">Bedrock</span>(
+    model=<span class="string">"anthropic.claude-sonnet-4-5-20250929-v1:0"</span>
+)
+embed_model = <span class="function">BedrockEmbedding</span>(
+    model=<span class="string">"amazon.titan-embed-text-v1"</span>
+)
+
+<span class="comment"># Create service context</span>
+service_context = <span class="function">ServiceContext.from_defaults</span>(
+    llm=llm,
+    embed_model=embed_model
+)
+
+<span class="comment"># Create index and query</span>
+index = VectorStoreIndex.<span class="function">from_documents</span>(
+    documents,
+    service_context=service_context
+)
+
+query_engine = index.<span class="function">as_query_engine</span>()
+response = query_engine.<span class="function">query</span>(
+    <span class="string">"What is the loan approval process?"</span>
+)</div>
+        </div>
+    </div>
+
+    <h2 style="color: #333;">RAG Best Practices</h2>
+    <div class="grid-3">
+        <div class="card purple">
+            <h4 style="color: #333;">🎯 Retrieval Optimization</h4>
+            <ul>
+                <li style="color: #333;"><strong>Top-K:</strong> Start with k=3, adjust based on results</li>
+                <li style="color: #333;"><strong>Hybrid Search:</strong> Combine keyword + vector</li>
+                <li style="color: #333;"><strong>Metadata Filtering:</strong> Filter by date, category</li>
+                <li style="color: #333;"><strong>Re-ranking:</strong> Use cross-encoder for better results</li>
+            </ul>
+        </div>
+        <div class="card green">
+            <h4 style="color: #333;">📝 Prompt Engineering</h4>
+            <ul>
+                <li style="color: #333;"><strong>Context Window:</strong> Keep under 4K tokens</li>
+                <li style="color: #333;"><strong>Instructions:</strong> Clear, specific prompts</li>
+                <li style="color: #333;"><strong>Citations:</strong> Always ask for sources</li>
+                <li style="color: #333;"><strong>Fallback:</strong> Handle no-results gracefully</li>
+            </ul>
+        </div>
+        <div class="card aws">
+            <h4 style="color: #333;">⚡ Performance</h4>
+            <ul>
+                <li style="color: #333;"><strong>Caching:</strong> Cache embeddings and results</li>
+                <li style="color: #333;"><strong>Batch Processing:</strong> Process multiple queries</li>
+                <li style="color: #333;"><strong>Async:</strong> Use async for parallel retrieval</li>
+                <li style="color: #333;"><strong>Monitoring:</strong> Track latency and accuracy</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="banking-scenario">
+        <h4>🏦 SecureBank RAG Implementation</h4>
+        <ul>
+            <li><strong>Documents:</strong> 500 banking policies, 1,000 FAQs, 200 product docs</li>
+            <li><strong>Chunking:</strong> 800 tokens with 100 overlap = 8,500 chunks</li>
+            <li><strong>Vector Store:</strong> OpenSearch Serverless (4 OCUs) = $0.40/hr = $288/month</li>
+            <li><strong>Embeddings:</strong> Titan Embeddings = $0.0001/1K tokens = $8.50/month</li>
+            <li><strong>LLM:</strong> Claude Sonnet 4.5 = $0.003/1K input + $0.015/1K output = ~$50/month</li>
+            <li><strong>Total Cost:</strong> ~$350/month for 10K queries/month</li>
+            <li><strong>Performance:</strong> 200ms latency, 90% accuracy, 95% user satisfaction</li>
+        </ul>
+    </div>
+
+    <div class="tip-box">
+        <span class="icon">💡</span>
+        <div>
+            <strong>Production Tip:</strong> Start with LangChain for rapid prototyping. It has excellent Bedrock integration and built-in chains. For advanced use cases (custom retrievers, complex pipelines), consider LlamaIndex. Both frameworks work seamlessly with Bedrock and OpenSearch.
+        </div>
+    </div>
+
+    <div class="slide-footer">
+        <strong>© 2024 Great Learning. All Rights Reserved.</strong> | AWS GenAI Banking Workshop - Day 9 | Proprietary content - Unauthorized use prohibited
+    </div>
+</div>
+
+
+<!-- SLIDE 7: Labs Overview -->
+<div class="slide">
+    <div class="slide-header">
+        <div class="gl-logo">
+            <svg xmlns="http://www.w3.org/2000/svg" width="150" height="40" viewBox="0 0 257 80" fill="none">
+                <g fill-rule="evenodd">
+                    <path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"/>
+                    <path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"/>
+                    <path d="M47.307 61.583l10.626-13.099v-18.09H35.359L26.75 41.022h20.556z" fill="#0066cc"/>
+                    <text fill="#0066cc" font-family="Arial, sans-serif" font-size="20" font-weight="bold" x="90" y="35">Great Learning</text>
+                    <text fill="#666" font-family="Arial, sans-serif" font-size="10" x="90" y="50">Excellence in Education</text>
+                </g>
+            </svg>
+        </div>
+        <div class="gl-badge">AWS GenAI Banking Workshop</div>
+    </div>
+
+    <h1 style="color: #333;">🧪 Day 9: Hands-on Labs Overview</h1>
+    <p class="subtitle">Build production RAG and Agents for SecureBank</p>
+
+    <h2 style="color: #333;">Lab 1: Create Knowledge Base in Bedrock (25 min)</h2>
+    <div class="grid-2">
+        <div class="card purple">
+            <h4 style="color: #333;">📚 Lab Objectives</h4>
+            <ul>
+                <li style="color: #333;">Create S3 bucket with banking documents</li>
+                <li style="color: #333;">Set up OpenSearch Serverless collection</li>
+                <li style="color: #333;">Configure Bedrock Knowledge Base</li>
+                <li style="color: #333;">Sync documents and create embeddings</li>
+                <li style="color: #333;">Test queries in Bedrock console</li>
+            </ul>
+        </div>
+        <div class="card blue">
+            <h4 style="color: #333;">🛠️ Resources Created</h4>
+            <ul>
+                <li style="color: #333;"><strong>S3 Bucket:</strong> securebank-banking-docs-[id]</li>
+                <li style="color: #333;"><strong>OpenSearch:</strong> banking-knowledge-base collection</li>
+                <li style="color: #333;"><strong>Knowledge Base:</strong> SecureBank-Policies-KB</li>
+                <li style="color: #333;"><strong>IAM Roles:</strong> Bedrock KB execution role</li>
+                <li style="color: #333;"><strong>Embeddings:</strong> Titan Embeddings v1</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="banking-scenario">
+        <h4>🏦 SecureBank Scenario: Banking Policy Knowledge Base</h4>
+        <p style="color: #fff; margin: 10px 0;">You'll create a knowledge base with SecureBank's banking policies:</p>
+        <ul>
+            <li><strong>Mortgage Policy:</strong> Approval process, requirements, rates</li>
+            <li><strong>Loan Policy:</strong> Personal loans, business loans, eligibility</li>
+            <li><strong>KYC Policy:</strong> Customer verification, compliance requirements</li>
+            <li><strong>Account Policy:</strong> Account types, features, fees</li>
+        </ul>
+        <p style="color: #fff; margin: 10px 0;"><strong>Test Query:</strong> "What documents are required for mortgage approval?"</p>
+    </div>
+
+    <h2 style="color: #333;">Lab 2: Implement RAG with LangChain (30 min)</h2>
+    <div class="grid-2">
+        <div class="card green">
+            <h4 style="color: #333;">🦜 Lab Objectives</h4>
+            <ul>
+                <li style="color: #333;">Set up LangChain with Bedrock integration</li>
+                <li style="color: #333;">Configure OpenSearch vector store</li>
+                <li style="color: #333;">Implement retrieval chain with citations</li>
+                <li style="color: #333;">Test with banking queries</li>
+                <li style="color: #333;">Add conversation memory for multi-turn chat</li>
+            </ul>
+        </div>
+        <div class="card aws">
+            <h4 style="color: #333;">🛠️ Resources Created</h4>
+            <ul>
+                <li style="color: #333;"><strong>Lambda Function:</strong> RAG query handler</li>
+                <li style="color: #333;"><strong>API Gateway:</strong> REST API for queries</li>
+                <li style="color: #333;"><strong>DynamoDB:</strong> Conversation memory table</li>
+                <li style="color: #333;"><strong>Python Layer:</strong> LangChain dependencies</li>
+                <li style="color: #333;"><strong>CloudWatch:</strong> Logs and metrics</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="code-block"><span class="comment"># Sample Lambda handler for RAG</span>
+<span class="keyword">import</span> json
+<span class="keyword">from</span> langchain_aws <span class="keyword">import</span> BedrockLLM, BedrockEmbeddings
+<span class="keyword">from</span> langchain_community.vectorstores <span class="keyword">import</span> OpenSearchVectorSearch
+<span class="keyword">from</span> langchain.chains <span class="keyword">import</span> RetrievalQAWithSourcesChain
+
+<span class="keyword">def</span> <span class="function">lambda_handler</span>(event, context):
+    <span class="comment"># Initialize components</span>
+    llm = <span class="function">BedrockLLM</span>(model_id=<span class="string">"anthropic.claude-sonnet-4-5-20250929-v1:0"</span>)
+    embeddings = <span class="function">BedrockEmbeddings</span>(model_id=<span class="string">"amazon.titan-embed-text-v1"</span>)
+    
+    <span class="comment"># Connect to vector store</span>
+    vector_store = <span class="function">OpenSearchVectorSearch</span>(
+        opensearch_url=os.environ[<span class="string">'OPENSEARCH_URL'</span>],
+        index_name=<span class="string">"banking-docs"</span>,
+        embedding_function=embeddings
+    )
+    
+    <span class="comment"># Create RAG chain</span>
+    qa_chain = RetrievalQAWithSourcesChain.<span class="function">from_chain_type</span>(
+        llm=llm,
+        retriever=vector_store.<span class="function">as_retriever</span>(search_kwargs={<span class="string">"k"</span>: 3})
+    )
+    
+    <span class="comment"># Process query</span>
+    query = json.<span class="function">loads</span>(event[<span class="string">'body'</span>])[<span class="string">'query'</span>]
+    result = qa_chain(query)
+    
+    <span class="keyword">return</span> {
+        <span class="string">'statusCode'</span>: 200,
+        <span class="string">'body'</span>: json.<span class="function">dumps</span>({
+            <span class="string">'answer'</span>: result[<span class="string">'answer'</span>],
+            <span class="string">'sources'</span>: result[<span class="string">'sources'</span>]
+        })
+    }</div>
+
+    <h2 style="color: #333;">Lab 3: Build Bedrock Agent (35 min)</h2>
+    <div class="grid-2">
+        <div class="card aws">
+            <h4 style="color: #333;">🤖 Lab Objectives</h4>
+            <ul>
+                <li style="color: #333;">Create Bedrock Agent in console</li>
+                <li style="color: #333;">Define action groups (Lambda functions)</li>
+                <li style="color: #333;">Connect Knowledge Base from Lab 1</li>
+                <li style="color: #333;">Configure agent instructions and personality</li>
+                <li style="color: #333;">Test with natural language prompts</li>
+            </ul>
+        </div>
+        <div class="card purple">
+            <h4 style="color: #333;">🛠️ Resources Created</h4>
+            <ul>
+                <li style="color: #333;"><strong>Bedrock Agent:</strong> SecureBank-Assistant</li>
+                <li style="color: #333;"><strong>Action Groups:</strong> CheckBalance, TransferMoney</li>
+                <li style="color: #333;"><strong>Lambda Functions:</strong> 2 action handlers</li>
+                <li style="color: #333;"><strong>OpenAPI Schema:</strong> Action definitions</li>
+                <li style="color: #333;"><strong>IAM Roles:</strong> Agent execution role</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="banking-scenario">
+        <h4>🏦 SecureBank Scenario: Intelligent Banking Assistant</h4>
+        <p style="color: #fff; margin: 10px 0;">You'll create an agent that can:</p>
+        <ul>
+            <li><strong>Answer Questions:</strong> "What is the mortgage approval process?" (uses Knowledge Base)</li>
+            <li><strong>Check Balances:</strong> "What is my checking account balance?" (calls CheckBalance action)</li>
+            <li><strong>Transfer Money:</strong> "Transfer $500 from savings to checking" (calls TransferMoney action)</li>
+            <li><strong>Multi-step Tasks:</strong> "Transfer $500 and show me my new balance" (orchestrates multiple actions)</li>
+        </ul>
+        <p style="color: #fff; margin: 10px 0;"><strong>Agent Instructions:</strong> "You are a helpful banking assistant for SecureBank. Be professional, accurate, and always cite sources when using the knowledge base."</p>
+    </div>
+
+    <h2 style="color: #333;">Lab Resources & CloudFormation</h2>
+    <table>
+        <tr>
+            <th>Lab</th>
+            <th>CloudFormation Template</th>
+            <th>Duration</th>
+            <th>Key Services</th>
+            <th>Cost</th>
+        </tr>
+        <tr>
+            <td><strong>Lab 1</strong></td>
+            <td>day9-lab1-knowledge-base.yaml</td>
+            <td>25 min</td>
+            <td>S3, OpenSearch, Bedrock KB</td>
+            <td>$0.20/hr</td>
+        </tr>
+        <tr>
+            <td><strong>Lab 2</strong></td>
+            <td>day9-lab2-langchain-rag.yaml</td>
+            <td>30 min</td>
+            <td>Lambda, API Gateway, DynamoDB</td>
+            <td>$0.05/hr</td>
+        </tr>
+        <tr>
+            <td><strong>Lab 3</strong></td>
+            <td>day9-lab3-bedrock-agent.yaml</td>
+            <td>35 min</td>
+            <td>Bedrock Agent, Lambda</td>
+            <td>$0.10/hr</td>
+        </tr>
+        <tr>
+            <td><strong>Total</strong></td>
+            <td>3 templates</td>
+            <td>90 min</td>
+            <td>10+ services</td>
+            <td><strong>$0.35/hr</strong></td>
+        </tr>
+    </table>
+
+    <div class="tip-box">
+        <span class="icon">💡</span>
+        <div>
+            <strong>Lab Tip:</strong> Complete labs in order. Lab 1 creates the Knowledge Base used in Lab 3. Lab 2 can be done independently. All CloudFormation templates include cleanup scripts to delete resources after the workshop.
+        </div>
+    </div>
+
+    <div class="warning-box">
+        <span class="icon">⚠️</span>
+        <div>
+            <strong>Cost Warning:</strong> OpenSearch Serverless has a minimum charge of 2 OCUs ($0.20/hr). Remember to delete the collection after the workshop to avoid ongoing charges. Use the cleanup script: <code>aws cloudformation delete-stack --stack-name day9-lab1</code>
+        </div>
+    </div>
+
+    <div class="slide-footer">
+        <strong>© 2024 Great Learning. All Rights Reserved.</strong> | AWS GenAI Banking Workshop - Day 9 | Proprietary content - Unauthorized use prohibited
+    </div>
+</div>
+
+
+<!-- SLIDE 8: Summary & 9-Day Workshop Journey -->
+<div class="slide">
+    <div class="slide-header">
+        <div class="gl-logo">
+            <svg xmlns="http://www.w3.org/2000/svg" width="150" height="40" viewBox="0 0 257 80" fill="none">
+                <g fill-rule="evenodd">
+                    <path d="M38.68 72.21l.208-.247 8.42-10.38H36.104c-14.048 0-25.478-11.43-25.478-25.478 0-14.05 11.43-25.479 25.478-25.479h13.088L57.899 0H36.104C16.196 0 0 16.197 0 36.105 0 56.013 16.196 72.21 36.104 72.21h2.577z" fill="#0066cc"/>
+                    <path d="M0 36.105C0 45.29 3.453 53.68 9.122 60.059l6.823-8.401a25.343 25.343 0 01-5.319-15.553c0-14.05 11.43-25.479 25.478-25.479H49.27L57.9 0H36.104C16.196 0 0 16.196 0 36.105" fill="#0080ff"/>
+                    <path d="M47.307 61.583l10.626-13.099v-18.09H35.359L26.75 41.022h20.556z" fill="#0066cc"/>
+                    <text fill="#0066cc" font-family="Arial, sans-serif" font-size="20" font-weight="bold" x="90" y="35">Great Learning</text>
+                    <text fill="#666" font-family="Arial, sans-serif" font-size="10" x="90" y="50">Excellence in Education</text>
+                </g>
+            </svg>
+        </div>
+        <div class="gl-badge">AWS GenAI Banking Workshop</div>
+    </div>
+
+    <h1 style="color: #333;">🎉 Congratulations! Workshop Complete</h1>
+    <p class="subtitle">Your 9-Day AWS GenAI Banking Journey</p>
+
+    <h2 style="color: #333;">Day 9 Key Takeaways</h2>
+    <div class="grid-3">
+        <div class="card purple">
+            <h4 style="color: #333;">📚 RAG Mastery</h4>
+            <ul>
+                <li style="color: #333;">Fine-tuning vs RAG decision framework</li>
+                <li style="color: #333;">Knowledge Bases architecture</li>
+                <li style="color: #333;">Vector databases comparison</li>
+                <li style="color: #333;">Production RAG with LangChain</li>
+            </ul>
+        </div>
+        <div class="card aws">
+            <h4 style="color: #333;">🤖 Agent Development</h4>
+            <ul>
+                <li style="color: #333;">Bedrock Agents architecture</li>
+                <li style="color: #333;">Action groups and orchestration</li>
+                <li style="color: #333;">ReAct loop understanding</li>
+                <li style="color: #333;">Multi-step task automation</li>
+            </ul>
+        </div>
+        <div class="card green">
+            <h4 style="color: #333;">🏦 Banking Applications</h4>
+            <ul>
+                <li style="color: #333;">Policy Q&A systems</li>
+                <li style="color: #333;">Intelligent assistants</li>
+                <li style="color: #333;">Loan application agents</li>
+                <li style="color: #333;">Account management automation</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2 style="color: #333;">Complete 9-Day Workshop Journey</h2>
+    <div class="pipeline">
+        <div class="pipeline-step blue">
+            <strong>Day 1</strong>
+            <small>AWS Foundations</small>
+        </div>
+        <div class="pipeline-step purple">
+            <strong>Day 2</strong>
+            <small>VPC & Networking</small>
+        </div>
+        <div class="pipeline-step green">
+            <strong>Day 3</strong>
+            <small>EC2 & CLI</small>
+        </div>
+        <div class="pipeline-step aws">
+            <strong>Day 4</strong>
+            <small>Lambda & Serverless</small>
+        </div>
+        <div class="pipeline-step orange">
+            <strong>Day 5</strong>
+            <small>SageMaker ML</small>
+        </div>
+        <div class="pipeline-step purple">
+            <strong>Day 6</strong>
+            <small>Studio & GenAI</small>
+        </div>
+        <div class="pipeline-step blue">
+            <strong>Day 7</strong>
+            <small>AI Services</small>
+        </div>
+        <div class="pipeline-step aws">
+            <strong>Day 8</strong>
+            <small>Bedrock & LLMs</small>
+        </div>
+        <div class="pipeline-step green">
+            <strong>Day 9</strong>
+            <small>RAG & Agents</small>
+        </div>
+    </div>
+
+    <h2 style="color: #333;">Skills Matrix: What You've Learned</h2>
+    <table>
+        <tr>
+            <th>Category</th>
+            <th>Skills Acquired</th>
+            <th>Services Mastered</th>
+            <th>Labs Completed</th>
+        </tr>
+        <tr>
+            <td><strong>Cloud Foundations</strong></td>
+            <td>IAM, VPC, EC2, S3, CloudFormation</td>
+            <td>15+ core services</td>
+            <td>8 labs</td>
+        </tr>
+        <tr>
+            <td><strong>Serverless</strong></td>
+            <td>Lambda, API Gateway, Step Functions, EventBridge</td>
+            <td>8+ serverless services</td>
+            <td>6 labs</td>
+        </tr>
+        <tr>
+            <td><strong>Machine Learning</strong></td>
+            <td>SageMaker, model training, deployment, endpoints</td>
+            <td>SageMaker ecosystem</td>
+            <td>5 labs</td>
+        </tr>
+        <tr>
+            <td><strong>AI Services</strong></td>
+            <td>Comprehend, Textract, Rekognition, Translate</td>
+            <td>10+ AI services</td>
+            <td>7 labs</td>
+        </tr>
+        <tr>
+            <td><strong>Generative AI</strong></td>
+            <td>Bedrock, Foundation Models, RAG, Agents</td>
+            <td>Bedrock ecosystem</td>
+            <td>6 labs</td>
+        </tr>
+        <tr>
+            <td><strong>Total</strong></td>
+            <td><strong>50+ skills</strong></td>
+            <td><strong>40+ services</strong></td>
+            <td><strong>32 labs</strong></td>
+        </tr>
+    </table>
+
+    <h2 style="color: #333;">Production Deployment Best Practices</h2>
+    <div class="grid-2">
+        <div class="card blue">
+            <h4 style="color: #333;">🔒 Security</h4>
+            <ul>
+                <li style="color: #333;"><strong>IAM:</strong> Least privilege, role-based access</li>
+                <li style="color: #333;"><strong>VPC:</strong> Private subnets, VPC endpoints</li>
+                <li style="color: #333;"><strong>Encryption:</strong> At rest (KMS) and in transit (TLS)</li>
+                <li style="color: #333;"><strong>Secrets:</strong> Secrets Manager for credentials</li>
+                <li style="color: #333;"><strong>Compliance:</strong> CloudTrail, Config, GuardDuty</li>
+            </ul>
+        </div>
+        <div class="card green">
+            <h4 style="color: #333;">⚡ Performance</h4>
+            <ul>
+                <li style="color: #333;"><strong>Caching:</strong> ElastiCache for embeddings</li>
+                <li style="color: #333;"><strong>Auto-scaling:</strong> Lambda, OpenSearch OCUs</li>
+                <li style="color: #333;"><strong>Monitoring:</strong> CloudWatch, X-Ray tracing</li>
+                <li style="color: #333;"><strong>Optimization:</strong> Batch processing, async</li>
+                <li style="color: #333;"><strong>CDN:</strong> CloudFront for static content</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="grid-2" style="margin-top: 20px;">
+        <div class="card aws">
+            <h4 style="color: #333;">💰 Cost Optimization</h4>
+            <ul>
+                <li style="color: #333;"><strong>Right-sizing:</strong> Choose appropriate instance types</li>
+                <li style="color: #333;"><strong>Serverless:</strong> Pay per use (Lambda, Bedrock)</li>
+                <li style="color: #333;"><strong>Reserved:</strong> Savings Plans for predictable workloads</li>
+                <li style="color: #333;"><strong>Monitoring:</strong> Cost Explorer, Budgets, alerts</li>
+                <li style="color: #333;"><strong>Cleanup:</strong> Delete unused resources</li>
+            </ul>
+        </div>
+        <div class="card purple">
+            <h4 style="color: #333;">🚀 Deployment</h4>
+            <ul>
+                <li style="color: #333;"><strong>IaC:</strong> CloudFormation, CDK, Terraform</li>
+                <li style="color: #333;"><strong>CI/CD:</strong> CodePipeline, CodeBuild, CodeDeploy</li>
+                <li style="color: #333;"><strong>Testing:</strong> Unit, integration, load testing</li>
+                <li style="color: #333;"><strong>Staging:</strong> Dev, test, prod environments</li>
+                <li style="color: #333;"><strong>Rollback:</strong> Blue/green, canary deployments</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2 style="color: #333;">Next Steps: Continue Your Journey</h2>
+    <div class="grid-3">
+        <div class="card green">
+            <h4 style="color: #333;">🎓 Certifications</h4>
+            <ul>
+                <li style="color: #333;">AWS Certified Solutions Architect</li>
+                <li style="color: #333;">AWS Certified Machine Learning</li>
+                <li style="color: #333;">AWS Certified AI Practitioner</li>
+            </ul>
+        </div>
+        <div class="card blue">
+            <h4 style="color: #333;">📚 Advanced Topics</h4>
+            <ul>
+                <li style="color: #333;">Fine-tuning foundation models</li>
+                <li style="color: #333;">Multi-agent orchestration</li>
+                <li style="color: #333;">Custom model deployment</li>
+            </ul>
+        </div>
+        <div class="card aws">
+            <h4 style="color: #333;">🏗️ Build Projects</h4>
+            <ul>
+                <li style="color: #333;">Banking chatbot with RAG</li>
+                <li style="color: #333;">Document processing pipeline</li>
+                <li style="color: #333;">Fraud detection system</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="success-box" style="margin-top: 30px;">
+        <span class="icon">🎉</span>
+        <div>
+            <strong>Congratulations!</strong> You've completed the 9-day AWS GenAI Banking Workshop. You now have the skills to build production-ready GenAI applications for banking. Keep learning, keep building, and keep innovating!
+        </div>
+    </div>
+
+    <div style="text-align: center; margin-top: 40px; padding: 30px; background: linear-gradient(135deg, #0066cc 0%, #0080ff 100%); border-radius: 12px;">
+        <h2 style="color: white; margin-bottom: 20px;">🏆 Certificate of Completion</h2>
+        <p style="color: white; font-size: 1.2em; margin-bottom: 15px;">
+            You have successfully completed the<br/>
+            <strong>AWS GenAI for Banking Workshop</strong>
+        </p>
+        <p style="color: white; font-size: 1em;">
+            9 Days | 36 Hours | 32 Labs | 40+ AWS Services
+        </p>
+        <p style="color: white; font-size: 0.9em; margin-top: 20px;">
+            Powered by <strong>Great Learning</strong> | Excellence in Education
+        </p>
+    </div>
+
+    <div style="text-align: center; margin-top: 30px;">
+        <h3 style="color: #0066cc;">Thank You!</h3>
+        <p style="color: #666; font-size: 1.1em; margin-top: 10px;">
+            Questions? Contact: <strong>aws-genai-workshop@greatlearning.com</strong>
+        </p>
+        <p style="color: #666; font-size: 0.9em; margin-top: 10px;">
+            Bedrock Documentation: <strong>docs.aws.amazon.com/bedrock</strong>
+        </p>
+    </div>
+
+    <div class="slide-footer">
+        <strong>© 2024 Great Learning. All Rights Reserved.</strong> | AWS GenAI Banking Workshop - Day 9 | Proprietary content - Unauthorized use prohibited
+    </div>
+</div>
+
+</body>
+</html>
