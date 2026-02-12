@@ -1,0 +1,1751 @@
+# =============================================================================
+# CELL 1: Lab Overview and Architecture
+# =============================================================================
+
+"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║   🧪 LAB: Agent Orchestration & Experimentation with AWS Bedrock            ║
+║                                                                              ║
+║   Duration: 2-3 hours                                                        ║
+║   Level: Intermediate to Advanced                                            ║
+║   Cost: Minimal (< $5 with cleanup)                                          ║
+║                                                                              ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║   MODULES:                                                                   ║
+║   ────────                                                                   ║
+║   Module 1: Environment Setup & Bedrock Configuration                        ║
+║   Module 2: Action Groups - Extending Agent Capabilities                     ║
+║   Module 3: Connecting Agents to APIs & AWS Services                         ║
+║   Module 4: LangGraph Multi-Step Agent Orchestration                         ║
+║   Module 5: LangSmith Tracing, Debugging & Evaluation                        ║
+║   Module 6: Strands Agent with AWS Bedrock                                   ║
+║   Module 7: Stateful Conversations with LangGraph                            ║
+║   Module 8: Comprehensive Cleanup                                            ║
+║                                                                              ║
+║   BEDROCK MODELS USED:                                                       ║
+║   ─────────────────────                                                      ║
+║   • Claude 3 Haiku    (anthropic.claude-3-haiku-20240307-v1:0)              ║
+║   • Claude 3 Sonnet   (anthropic.claude-3-sonnet-20240229-v1:0)             ║
+║   • Amazon Titan Text Express (amazon.titan-text-express-v1)                 ║
+║   • Amazon Titan Embeddings V1 (amazon.titan-embed-text-v1)                  ║
+║   • Amazon Titan Embeddings V2 (amazon.titan-embed-text-v2:0)               ║
+║                                                                              ║
+║   ARCHITECTURE:                                                              ║
+║   ─────────────                                                              ║
+║                                                                              ║
+║   ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐                ║
+║   │  LangGraph  │───▶│ AWS Bedrock  │───▶│  Action Groups  │                ║
+║   │ Orchestrator│    │   Models     │    │  (Tools/APIs)   │                ║
+║   └──────┬──────┘    └──────────────┘    └─────────────────┘                ║
+║          │                                                                    ║
+║          ▼                                                                    ║
+║   ┌─────────────┐    ┌──────────────┐                                        ║
+║   │  LangSmith  │    │Strands Agent │                                        ║
+║   │  Tracing    │    │  Framework   │                                        ║
+║   └─────────────┘    └──────────────┘                                        ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
+
+print("Lab Overview loaded. Proceed to Cell 2 for environment setup.")
+# =============================================================================
+# CELL 2: Install Dependencies
+# =============================================================================
+
+"""
+📦 MODULE 1A: Install Required Packages
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+We install bare minimum packages to keep the environment lean.
+"""
+
+import subprocess
+import sys
+
+def install_packages():
+    """Install all required packages with minimal footprint."""
+    
+    packages = [
+        # Core AWS
+        "boto3>=1.34.0",
+        "botocore>=1.34.0",
+        
+        # LangChain ecosystem
+        "langchain>=0.2.0",
+        "langchain-aws>=0.1.0",
+        "langchain-community>=0.2.0",
+        "langchain-core>=0.2.0",
+        
+        # LangGraph for orchestration
+        "langgraph>=0.1.0",
+        
+        # LangSmith for tracing
+        "langsmith>=0.1.0",
+        
+        # Strands Agents SDK
+        "strands-agents>=0.1.0",
+        "strands-agents-tools>=0.1.0",
+        
+        # Utilities
+        "pydantic>=2.0",
+        "python-dotenv",
+        "tabulate",
+        "requests",
+    ]
+    
+    for package in packages:
+        print(f"📦 Installing {package}...")
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", package, "-q"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+    
+    print("\n✅ All packages installed successfully!")
+
+install_packages()
+# =============================================================================
+# CELL 3: Environment Configuration & Validation
+# =============================================================================
+
+"""
+⚙️ MODULE 1B: Environment Setup & Bedrock Model Validation
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Configure AWS credentials, validate Bedrock model access,
+and set up LangSmith tracing.
+"""
+
+import boto3
+import json
+import os
+import logging
+from datetime import datetime
+from botocore.config import Config
+
+# ── Logging Setup ──
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("AgentLab")
+
+# ── AWS Configuration ──
+# Note: In SageMaker AI Studio, this will use the region of your SageMaker domain
+# You can override by setting AWS_DEFAULT_REGION environment variable
+AWS_REGION = os.environ.get("AWS_DEFAULT_REGION", os.environ.get("AWS_REGION", "us-east-1"))
+
+# Retry configuration for cost optimization
+BEDROCK_CONFIG = Config(
+    region_name=AWS_REGION,
+    retries={"max_attempts": 3, "mode": "adaptive"},
+    read_timeout=120,
+    connect_timeout=10,
+)
+
+# ── Model Registry ──
+MODEL_REGISTRY = {
+    "claude_haiku": "anthropic.claude-3-haiku-20240307-v1:0",
+    "claude_sonnet": "anthropic.claude-3-sonnet-20240229-v1:0",
+    "titan_text": "amazon.titan-text-express-v1",
+    "titan_embed_v1": "amazon.titan-embed-text-v1",
+    "titan_embed_v2": "amazon.titan-embed-text-v2:0",
+}
+
+# ── LangSmith Configuration ──
+# Set your LangSmith API key here or via environment variable
+# Note: LangSmith is optional - the lab will work without it, just without tracing
+LANGSMITH_API_KEY = os.environ.get("LANGSMITH_API_KEY", "")
+LANGSMITH_PROJECT = "aws-bedrock-agent-lab"
+
+# Only enable LangSmith if API key is provided
+if LANGSMITH_API_KEY and LANGSMITH_API_KEY != "your-langsmith-api-key-here":
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    os.environ["LANGCHAIN_API_KEY"] = LANGSMITH_API_KEY
+    os.environ["LANGCHAIN_PROJECT"] = LANGSMITH_PROJECT
+    os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
+    print("✅ LangSmith tracing enabled")
+else:
+    os.environ["LANGCHAIN_TRACING_V2"] = "false"
+    print("⚠️  LangSmith tracing disabled (no API key provided)")
+
+# ── Initialize AWS Clients ──
+session = boto3.Session(region_name=AWS_REGION)
+bedrock_client = session.client("bedrock", config=BEDROCK_CONFIG)
+bedrock_runtime = session.client("bedrock-runtime", config=BEDROCK_CONFIG)
+s3_client = session.client("s3", config=BEDROCK_CONFIG)
+lambda_client = session.client("lambda", config=BEDROCK_CONFIG)
+iam_client = session.client("iam", config=BEDROCK_CONFIG)
+sts_client = session.client("sts", config=BEDROCK_CONFIG)
+
+# ── Get Account Info ──
+try:
+    account_id = sts_client.get_caller_identity()["Account"]
+    print(f"🔐 AWS Account ID: {account_id}")
+    print(f"🌍 Region: {AWS_REGION}")
+except Exception as e:
+    print(f"⚠️  Could not retrieve AWS account info: {e}")
+    print(f"🌍 Region: {AWS_REGION}")
+    print("   Continuing with lab setup...")
+
+# ── Validate Bedrock Model Access ──
+print("\n📋 Validating Bedrock Model Access:")
+print("=" * 60)
+
+def validate_model_access():
+    """Validate that all required models are accessible."""
+    available_models = []
+    
+    try:
+        response = bedrock_client.list_foundation_models()
+        model_ids = [m["modelId"] for m in response["modelSummaries"]]
+    except Exception as e:
+        logger.error(f"Failed to list models: {e}")
+        return []
+    
+    for name, model_id in MODEL_REGISTRY.items():
+        # Check if model is in available list
+        is_available = any(model_id in mid for mid in model_ids)
+        status = "✅ Available" if is_available else "❌ Not Available"
+        print(f"  {status} | {name:20s} | {model_id}")
+        if is_available:
+            available_models.append(name)
+    
+    return available_models
+
+available = validate_model_access()
+
+# ── Quick Model Test ──
+print("\n🧪 Quick Model Connectivity Test (Claude 3 Haiku):")
+print("-" * 60)
+
+try:
+    test_response = bedrock_runtime.invoke_model(
+        modelId=MODEL_REGISTRY["claude_haiku"],
+        contentType="application/json",
+        accept="application/json",
+        body=json.dumps({
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 50,
+            "messages": [
+                {"role": "user", "content": "Say 'Lab environment ready!' in one line."}
+            ]
+        })
+    )
+    result = json.loads(test_response["body"].read())
+    print(f"  🤖 Response: {result['content'][0]['text']}")
+    print("  ✅ Bedrock connectivity confirmed!")
+except Exception as e:
+    print(f"  ❌ Error: {e}")
+    print("  ⚠️ Ensure Bedrock model access is enabled in your AWS console.")
+
+# ── Test Titan Embeddings ──
+print("\n🧪 Quick Embedding Test (Titan Embeddings V2):")
+print("-" * 60)
+
+try:
+    embed_response = bedrock_runtime.invoke_model(
+        modelId=MODEL_REGISTRY["titan_embed_v2"],
+        contentType="application/json",
+        accept="application/json",
+        body=json.dumps({
+            "inputText": "Test embedding generation",
+            "dimensions": 256,
+            "normalize": True
+        })
+    )
+    embed_result = json.loads(embed_response["body"].read())
+    embedding_dim = len(embed_result["embedding"])
+    print(f"  📐 Embedding Dimension: {embedding_dim}")
+    print("  ✅ Titan Embeddings V2 working!")
+except Exception as e:
+    print(f"  ❌ Error: {e}")
+
+print("\n" + "=" * 60)
+print("🎯 Environment setup complete. Proceed to Module 2.")
+# =============================================================================
+# CELL 4: Helper Utilities & Bedrock Wrapper Classes
+# =============================================================================
+
+"""
+🔧 MODULE 1C: Helper Utilities
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Reusable wrapper classes for Bedrock models to minimize
+repeated boilerplate code across the lab.
+"""
+
+from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass, field
+import time
+
+
+@dataclass
+class LabConfig:
+    """Central configuration for the lab."""
+    lab_prefix: str = "agent-lab"
+    timestamp: str = field(default_factory=lambda: datetime.now().strftime("%Y%m%d%H%M"))
+    resources_created: List[str] = field(default_factory=list)
+    
+    def track_resource(self, resource_type: str, resource_id: str):
+        """Track created resources for cleanup."""
+        self.resources_created.append({
+            "type": resource_type,
+            "id": resource_id,
+            "created_at": datetime.now().isoformat()
+        })
+        print(f"  📌 Tracked for cleanup: {resource_type} -> {resource_id}")
+
+
+# Global config
+lab_config = LabConfig()
+
+
+class BedrockModelWrapper:
+    """
+    Unified wrapper for all Bedrock models used in this lab.
+    Handles Claude (Anthropic) and Titan (Amazon) model invocations.
+    """
+    
+    def __init__(self, runtime_client):
+        self.client = runtime_client
+        self.invocation_count = 0
+        self.total_tokens = 0
+    
+    def invoke_claude(
+        self,
+        prompt: str,
+        model_key: str = "claude_haiku",
+        max_tokens: int = 1024,
+        temperature: float = 0.1,
+        system: str = None,
+    ) -> str:
+        """Invoke Claude model (Haiku or Sonnet)."""
+        
+        model_id = MODEL_REGISTRY[model_key]
+        
+        body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": [{"role": "user", "content": prompt}]
+        }
+        
+        if system:
+            body["system"] = system
+        
+        response = self.client.invoke_model(
+            modelId=model_id,
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps(body)
+        )
+        
+        result = json.loads(response["body"].read())
+        self.invocation_count += 1
+        
+        # Track token usage
+        if "usage" in result:
+            self.total_tokens += result["usage"].get("input_tokens", 0)
+            self.total_tokens += result["usage"].get("output_tokens", 0)
+        
+        return result["content"][0]["text"]
+    
+    def invoke_claude_with_messages(
+        self,
+        messages: List[Dict],
+        model_key: str = "claude_haiku",
+        max_tokens: int = 1024,
+        temperature: float = 0.1,
+        system: str = None,
+        tools: List[Dict] = None,
+    ) -> Dict:
+        """Invoke Claude with full message history (for stateful conversations)."""
+        
+        model_id = MODEL_REGISTRY[model_key]
+        
+        body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": messages
+        }
+        
+        if system:
+            body["system"] = system
+        
+        if tools:
+            body["tools"] = tools
+        
+        response = self.client.invoke_model(
+            modelId=model_id,
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps(body)
+        )
+        
+        result = json.loads(response["body"].read())
+        self.invocation_count += 1
+        return result
+    
+    def invoke_titan_text(
+        self,
+        prompt: str,
+        max_tokens: int = 512,
+        temperature: float = 0.1,
+    ) -> str:
+        """Invoke Amazon Titan Text Express."""
+        
+        body = {
+            "inputText": prompt,
+            "textGenerationConfig": {
+                "maxTokenCount": max_tokens,
+                "temperature": temperature,
+                "topP": 0.9,
+            }
+        }
+        
+        response = self.client.invoke_model(
+            modelId=MODEL_REGISTRY["titan_text"],
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps(body)
+        )
+        
+        result = json.loads(response["body"].read())
+        self.invocation_count += 1
+        return result["results"][0]["outputText"]
+    
+    def generate_embeddings(
+        self,
+        text: str,
+        version: str = "v2",
+        dimensions: int = 256,
+    ) -> List[float]:
+        """Generate embeddings using Titan Embeddings."""
+        
+        model_key = "titan_embed_v2" if version == "v2" else "titan_embed_v1"
+        
+        body = {"inputText": text}
+        if version == "v2":
+            body["dimensions"] = dimensions
+            body["normalize"] = True
+        
+        response = self.client.invoke_model(
+            modelId=MODEL_REGISTRY[model_key],
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps(body)
+        )
+        
+        result = json.loads(response["body"].read())
+        self.invocation_count += 1
+        return result["embedding"]
+    
+    def get_usage_stats(self) -> Dict:
+        """Get usage statistics."""
+        return {
+            "total_invocations": self.invocation_count,
+            "estimated_total_tokens": self.total_tokens,
+        }
+
+
+# Initialize the wrapper
+bedrock_wrapper = BedrockModelWrapper(bedrock_runtime)
+
+# Quick validation
+print("🔧 Helper utilities loaded successfully!")
+print(f"📊 Lab Config: prefix={lab_config.lab_prefix}, timestamp={lab_config.timestamp}")
+
+# Test each model briefly
+print("\n🧪 Model Wrapper Validation:")
+print("-" * 50)
+
+try:
+    # Claude Haiku
+    haiku_resp = bedrock_wrapper.invoke_claude("What is 2+2? Reply with just the number.", "claude_haiku", max_tokens=10)
+    print(f"  Claude 3 Haiku: {haiku_resp.strip()}")
+except Exception as e:
+    print(f"  ⚠️  Claude 3 Haiku test failed: {e}")
+
+try:
+    # Titan Text
+    titan_resp = bedrock_wrapper.invoke_titan_text("What is 3+3? Reply with just the number.", max_tokens=10)
+    print(f"  Titan Text Express: {titan_resp.strip()}")
+except Exception as e:
+    print(f"  ⚠️  Titan Text test failed: {e}")
+
+try:
+    # Titan Embeddings V1
+    emb_v1 = bedrock_wrapper.generate_embeddings("Hello world", version="v1")
+    print(f"  Titan Embeddings V1: dim={len(emb_v1)}")
+except Exception as e:
+    print(f"  ⚠️  Titan Embeddings V1 test failed: {e}")
+
+try:
+    # Titan Embeddings V2
+    emb_v2 = bedrock_wrapper.generate_embeddings("Hello world", version="v2", dimensions=256)
+    print(f"  Titan Embeddings V2: dim={len(emb_v2)}")
+except Exception as e:
+    print(f"  ⚠️  Titan Embeddings V2 test failed: {e}")
+
+print(f"\n📊 Usage: {bedrock_wrapper.get_usage_stats()}")
+print("✅ Model wrapper validation complete!")
+
+# Initialize knowledge base now that bedrock_wrapper is ready
+initialize_knowledge_base()
+# =============================================================================
+# CELL 5: MODULE 2 - Defining Action Groups to Extend Agent Capabilities
+# =============================================================================
+
+"""
+🎯 MODULE 2: Action Groups - Extending Agent Capabilities
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Action Groups are collections of tools/functions that extend
+what an agent can do beyond text generation. They allow agents to:
+  • Query databases
+  • Call external APIs
+  • Interact with AWS services
+  • Perform calculations
+  • Manage workflows
+
+In this module we define action groups as Python functions
+that will be used as tools by our agents.
+
+Architecture:
+┌─────────────┐     ┌──────────────────────────────────────┐
+│   Agent      │────▶│         Action Groups                 │
+│  (Bedrock)   │     │  ┌────────────┐  ┌───────────────┐  │
+│              │◀────│  │ Weather API │  │ Order Manager │  │
+└─────────────┘     │  └────────────┘  └───────────────┘  │
+                     │  ┌────────────┐  ┌───────────────┐  │
+                     │  │ Calculator │  │ S3 Data Store │  │
+                     │  └────────────┘  └───────────────┘  │
+                     └──────────────────────────────────────┘
+"""
+
+import math
+import random
+from typing import Annotated
+from pydantic import BaseModel, Field
+
+
+# ═══════════════════════════════════════════════════════════
+# ACTION GROUP 1: Weather Information Service
+# ═══════════════════════════════════════════════════════════
+
+class WeatherData(BaseModel):
+    """Schema for weather data response."""
+    city: str
+    temperature_f: float
+    temperature_c: float
+    condition: str
+    humidity: int
+    wind_speed_mph: float
+    forecast: str
+
+
+# Simulated weather database (no external API costs)
+WEATHER_DB = {
+    "new york": {"temp_f": 72, "condition": "Partly Cloudy", "humidity": 65, "wind": 8.5},
+    "london": {"temp_f": 58, "condition": "Rainy", "humidity": 80, "wind": 12.3},
+    "tokyo": {"temp_f": 78, "condition": "Sunny", "humidity": 55, "wind": 5.2},
+    "sydney": {"temp_f": 68, "condition": "Clear", "humidity": 45, "wind": 10.1},
+    "paris": {"temp_f": 65, "condition": "Overcast", "humidity": 70, "wind": 7.8},
+    "mumbai": {"temp_f": 88, "condition": "Humid", "humidity": 85, "wind": 4.5},
+    "san francisco": {"temp_f": 62, "condition": "Foggy", "humidity": 75, "wind": 15.2},
+    "berlin": {"temp_f": 55, "condition": "Cloudy", "humidity": 60, "wind": 9.3},
+}
+
+
+def get_weather(city: str) -> Dict[str, Any]:
+    """
+    🌤️ Action Group: Weather Information
+    
+    Retrieves current weather data for a given city.
+    This simulates an external weather API connection.
+    
+    Args:
+        city: Name of the city to get weather for
+        
+    Returns:
+        Dictionary with weather information
+    """
+    city_lower = city.lower().strip()
+    
+    if city_lower in WEATHER_DB:
+        data = WEATHER_DB[city_lower]
+        temp_c = round((data["temp_f"] - 32) * 5 / 9, 1)
+        
+        return {
+            "status": "success",
+            "city": city.title(),
+            "temperature_f": data["temp_f"],
+            "temperature_c": temp_c,
+            "condition": data["condition"],
+            "humidity": data["humidity"],
+            "wind_speed_mph": data["wind"],
+            "forecast": f"Expected {data['condition'].lower()} conditions to continue.",
+            "source": "WeatherActionGroup"
+        }
+    else:
+        return {
+            "status": "not_found",
+            "message": f"Weather data not available for '{city}'. Available cities: {', '.join(c.title() for c in WEATHER_DB.keys())}",
+            "source": "WeatherActionGroup"
+        }
+
+
+# ═══════════════════════════════════════════════════════════
+# ACTION GROUP 2: Order Management System
+# ═══════════════════════════════════════════════════════════
+
+# Simulated order database
+ORDER_DB = {
+    "ORD-001": {"customer": "Alice", "items": ["Laptop", "Mouse"], "total": 1299.99, "status": "Shipped", "eta": "2024-12-20"},
+    "ORD-002": {"customer": "Bob", "items": ["Headphones"], "total": 199.99, "status": "Processing", "eta": "2024-12-22"},
+    "ORD-003": {"customer": "Charlie", "items": ["Keyboard", "Monitor", "USB Hub"], "total": 549.99, "status": "Delivered", "eta": "2024-12-15"},
+    "ORD-004": {"customer": "Diana", "items": ["Tablet"], "total": 449.99, "status": "In Transit", "eta": "2024-12-19"},
+}
+
+
+def lookup_order(order_id: str) -> Dict[str, Any]:
+    """
+    📦 Action Group: Order Lookup
+    
+    Retrieves order details from the order management system.
+    
+    Args:
+        order_id: The order identifier (e.g., ORD-001)
+        
+    Returns:
+        Dictionary with order details
+    """
+    order_id = order_id.upper().strip()
+    
+    if order_id in ORDER_DB:
+        order = ORDER_DB[order_id]
+        return {
+            "status": "success",
+            "order_id": order_id,
+            "customer": order["customer"],
+            "items": order["items"],
+            "total": f"${order['total']:.2f}",
+            "order_status": order["status"],
+            "estimated_delivery": order["eta"],
+            "source": "OrderActionGroup"
+        }
+    else:
+        return {
+            "status": "not_found",
+            "message": f"Order '{order_id}' not found. Available orders: {', '.join(ORDER_DB.keys())}",
+            "source": "OrderActionGroup"
+        }
+
+
+def create_order(customer: str, items: List[str], total: float) -> Dict[str, Any]:
+    """
+    📦 Action Group: Create Order
+    
+    Creates a new order in the system.
+    
+    Args:
+        customer: Customer name
+        items: List of items ordered
+        total: Order total amount
+        
+    Returns:
+        Dictionary with new order confirmation
+    """
+    order_id = f"ORD-{random.randint(100, 999)}"
+    
+    ORDER_DB[order_id] = {
+        "customer": customer,
+        "items": items,
+        "total": total,
+        "status": "Processing",
+        "eta": "2024-12-25"
+    }
+    
+    return {
+        "status": "success",
+        "order_id": order_id,
+        "customer": customer,
+        "items": items,
+        "total": f"${total:.2f}",
+        "order_status": "Processing",
+        "message": f"Order {order_id} created successfully!",
+        "source": "OrderActionGroup"
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# ACTION GROUP 3: Calculator / Math Operations
+# ═══════════════════════════════════════════════════════════
+
+def calculate(expression: str) -> Dict[str, Any]:
+    """
+    🧮 Action Group: Calculator
+    
+    Performs mathematical calculations safely.
+    
+    Args:
+        expression: Mathematical expression to evaluate
+        
+    Returns:
+        Dictionary with calculation result
+    """
+    # Safe math operations
+    allowed_names = {
+        "abs": abs, "round": round,
+        "min": min, "max": max,
+        "sum": sum, "pow": pow,
+        "sqrt": math.sqrt, "log": math.log,
+        "sin": math.sin, "cos": math.cos,
+        "tan": math.tan, "pi": math.pi,
+        "e": math.e,
+    }
+    
+    try:
+        # Sanitize - only allow safe characters
+        safe_chars = set("0123456789+-*/().,%^ ")
+        expr_clean = expression.strip()
+        
+        # Replace common math notation
+        expr_clean = expr_clean.replace("^", "**")
+        
+        result = eval(expr_clean, {"__builtins__": {}}, allowed_names)
+        
+        return {
+            "status": "success",
+            "expression": expression,
+            "result": result,
+            "result_formatted": f"{result:,.4f}" if isinstance(result, float) else str(result),
+            "source": "CalculatorActionGroup"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "expression": expression,
+            "error": str(e),
+            "source": "CalculatorActionGroup"
+        }
+
+
+# ═══════════════════════════════════════════════════════════
+# ACTION GROUP 4: Knowledge Base Search (using Embeddings)
+# ═══════════════════════════════════════════════════════════
+
+# Simulated knowledge base with pre-embedded content
+KNOWLEDGE_BASE = [
+    {
+        "id": "KB-001",
+        "title": "Return Policy",
+        "content": "Items can be returned within 30 days of purchase. Items must be in original condition with tags attached. Refunds are processed within 5-7 business days.",
+        "category": "policy"
+    },
+    {
+        "id": "KB-002",
+        "title": "Shipping Information",
+        "content": "Standard shipping takes 5-7 business days. Express shipping takes 2-3 business days. Free shipping on orders over $50. International shipping available to select countries.",
+        "category": "shipping"
+    },
+    {
+        "id": "KB-003",
+        "title": "Product Warranty",
+        "content": "All electronics come with a 1-year manufacturer warranty. Extended warranty available for purchase. Warranty covers defects in materials and workmanship.",
+        "category": "warranty"
+    },
+    {
+        "id": "KB-004",
+        "title": "Account Management",
+        "content": "You can update your account settings in the profile section. Password resets are available via email. Two-factor authentication is recommended for security.",
+        "category": "account"
+    },
+]
+
+# Pre-compute embeddings for knowledge base
+KB_EMBEDDINGS = {}
+
+def initialize_knowledge_base():
+    """Pre-compute embeddings for all KB articles."""
+    print("  📚 Initializing Knowledge Base embeddings...")
+    try:
+        for article in KNOWLEDGE_BASE:
+            text = f"{article['title']}. {article['content']}"
+            embedding = bedrock_wrapper.generate_embeddings(text, version="v2", dimensions=256)
+            KB_EMBEDDINGS[article["id"]] = embedding
+        print(f"  ✅ Embedded {len(KNOWLEDGE_BASE)} articles")
+    except Exception as e:
+        logger.warning(f"Failed to initialize knowledge base embeddings: {e}")
+        print(f"  ⚠️  Knowledge base embeddings not initialized. Search will still work but may be slower.")
+
+# Note: initialize_knowledge_base() will be called after bedrock_wrapper is created
+# This is handled in the execution flow
+
+
+def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
+    """Calculate cosine similarity between two vectors."""
+    dot_product = sum(a * b for a, b in zip(vec1, vec2))
+    magnitude1 = math.sqrt(sum(a * a for a in vec1))
+    magnitude2 = math.sqrt(sum(b * b for b in vec2))
+    if magnitude1 == 0 or magnitude2 == 0:
+        return 0.0
+    return dot_product / (magnitude1 * magnitude2)
+
+
+def search_knowledge_base(query: str, top_k: int = 2) -> Dict[str, Any]:
+    """
+    🔍 Action Group: Knowledge Base Search
+    
+    Searches the knowledge base using semantic similarity
+    powered by Amazon Titan Embeddings V2.
+    
+    Args:
+        query: Search query text
+        top_k: Number of top results to return
+        
+    Returns:
+        Dictionary with search results
+    """
+    # Generate query embedding
+    query_embedding = bedrock_wrapper.generate_embeddings(query, version="v2", dimensions=256)
+    
+    # Calculate similarities
+    similarities = []
+    for article in KNOWLEDGE_BASE:
+        kb_embedding = KB_EMBEDDINGS[article["id"]]
+        sim = cosine_similarity(query_embedding, kb_embedding)
+        similarities.append((article, sim))
+    
+    # Sort by similarity
+    similarities.sort(key=lambda x: x[1], reverse=True)
+    
+    # Get top results
+    results = []
+    for article, sim in similarities[:top_k]:
+        results.append({
+            "id": article["id"],
+            "title": article["title"],
+            "content": article["content"],
+            "category": article["category"],
+            "relevance_score": round(sim, 4)
+        })
+    
+    return {
+        "status": "success",
+        "query": query,
+        "results_count": len(results),
+        "results": results,
+        "source": "KnowledgeBaseActionGroup"
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# ACTION GROUP 5: AWS Service Interaction
+# ═══════════════════════════════════════════════════════════
+
+def get_aws_account_info() -> Dict[str, Any]:
+    """
+    ☁️ Action Group: AWS Account Information
+    
+    Retrieves basic AWS account information.
+    
+    Returns:
+        Dictionary with AWS account details
+    """
+    try:
+        identity = sts_client.get_caller_identity()
+        return {
+            "status": "success",
+            "account_id": identity["Account"],
+            "arn": identity["Arn"],
+            "region": AWS_REGION,
+            "source": "AWSServiceActionGroup"
+        }
+    except Exception as e:
+        logger.error(f"AWS account info error: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "message": "Unable to retrieve AWS account information. Check IAM permissions.",
+            "source": "AWSServiceActionGroup"
+        }
+
+
+def list_s3_buckets(max_buckets: int = 5) -> Dict[str, Any]:
+    """
+    ☁️ Action Group: List S3 Buckets
+    
+    Lists S3 buckets in the account (limited for safety).
+    
+    Args:
+        max_buckets: Maximum number of buckets to return
+        
+    Returns:
+        Dictionary with S3 bucket information
+    """
+    try:
+        response = s3_client.list_buckets()
+        buckets = [
+            {
+                "name": b["Name"],
+                "created": b["CreationDate"].isoformat()
+            }
+            for b in response["Buckets"][:max_buckets]
+        ]
+        return {
+            "status": "success",
+            "total_buckets": len(response["Buckets"]),
+            "showing": len(buckets),
+            "buckets": buckets,
+            "source": "AWSServiceActionGroup"
+        }
+    except Exception as e:
+        logger.error(f"S3 list buckets error: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "message": "Unable to list S3 buckets. Check IAM permissions (s3:ListAllMyBuckets).",
+            "source": "AWSServiceActionGroup"
+        }
+
+
+# ═══════════════════════════════════════════════════════════
+# Register All Action Groups
+# ═══════════════════════════════════════════════════════════
+
+ACTION_GROUPS = {
+    "weather": {
+        "name": "WeatherService",
+        "description": "Get current weather information for cities worldwide",
+        "functions": {"get_weather": get_weather},
+    },
+    "orders": {
+        "name": "OrderManagement",
+        "description": "Look up and manage customer orders",
+        "functions": {
+            "lookup_order": lookup_order,
+            "create_order": create_order,
+        },
+    },
+    "calculator": {
+        "name": "Calculator",
+        "description": "Perform mathematical calculations",
+        "functions": {"calculate": calculate},
+    },
+    "knowledge_base": {
+        "name": "KnowledgeBase",
+        "description": "Search company knowledge base for policies and information",
+        "functions": {"search_knowledge_base": search_knowledge_base},
+    },
+    "aws_services": {
+        "name": "AWSServices",
+        "description": "Interact with AWS services for account and resource information",
+        "functions": {
+            "get_aws_account_info": get_aws_account_info,
+            "list_s3_buckets": list_s3_buckets,
+        },
+    },
+}
+
+# ── Test Action Groups ──
+print("\n🧪 Testing Action Groups:")
+print("=" * 60)
+
+# Test Weather
+print("\n🌤️ Weather Action Group:")
+print(json.dumps(get_weather("Tokyo"), indent=2))
+
+# Test Order Lookup
+print("\n📦 Order Action Group:")
+print(json.dumps(lookup_order("ORD-001"), indent=2))
+
+# Test Calculator
+print("\n🧮 Calculator Action Group:")
+print(json.dumps(calculate("(25 * 4) + 100"), indent=2))
+
+# Test Knowledge Base
+print("\n🔍 Knowledge Base Action Group:")
+kb_result = search_knowledge_base("How do I return an item?")
+print(json.dumps(kb_result, indent=2))
+
+# Test AWS Service
+print("\n☁️ AWS Service Action Group:")
+print(json.dumps(get_aws_account_info(), indent=2))
+
+print("\n" + "=" * 60)
+print(f"✅ All {len(ACTION_GROUPS)} Action Groups defined and tested!")
+print(f"📊 Total tool functions: {sum(len(ag['functions']) for ag in ACTION_GROUPS.values())}")
+# =============================================================================
+# CELL 6: MODULE 3 - Connecting Agents to APIs & AWS Services via Action Groups
+# =============================================================================
+
+"""
+🔌 MODULE 3: Connecting Agents to APIs & AWS Services
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This module demonstrates how to:
+  1. Define tool schemas compatible with Claude's tool use
+  2. Create an agent that can select and invoke appropriate tools
+  3. Handle tool results and generate final responses
+  4. Connect to AWS services through action groups
+
+Architecture:
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│   User       │────▶│  Claude 3    │────▶│  Tool Router │
+│   Query      │     │  Haiku       │     │              │
+└──────────────┘     └──────┬───────┘     └──────┬───────┘
+                            │                     │
+                            ▼                     ▼
+                     ┌──────────────┐     ┌──────────────┐
+                     │  Response    │◀────│ Action Group │
+                     │  Generation  │     │  Execution   │
+                     └──────────────┘     └──────────────┘
+"""
+
+# ═══════════════════════════════════════════════════════════
+# Define Tool Schemas for Claude's Tool Use API
+# ═══════════════════════════════════════════════════════════
+
+CLAUDE_TOOLS = [
+    {
+        "name": "get_weather",
+        "description": "Get current weather information for a specific city. Returns temperature, conditions, humidity, and wind speed.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "city": {
+                    "type": "string",
+                    "description": "The name of the city to get weather for (e.g., 'New York', 'Tokyo', 'London')"
+                }
+            },
+            "required": ["city"]
+        }
+    },
+    {
+        "name": "lookup_order",
+        "description": "Look up an order by its order ID to get status, items, and delivery information.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "order_id": {
+                    "type": "string",
+                    "description": "The order identifier (e.g., 'ORD-001')"
+                }
+            },
+            "required": ["order_id"]
+        }
+    },
+    {
+        "name": "create_order",
+        "description": "Create a new order for a customer.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "customer": {
+                    "type": "string",
+                    "description": "Customer name"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of items to order"
+                },
+                "total": {
+                    "type": "number",
+                    "description": "Total order amount in dollars"
+                }
+            },
+            "required": ["customer", "items", "total"]
+        }
+    },
+    {
+        "name": "calculate",
+        "description": "Perform a mathematical calculation. Supports basic arithmetic and common math functions.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "expression": {
+                    "type": "string",
+                    "description": "Mathematical expression to evaluate (e.g., '(25 * 4) + 100')"
+                }
+            },
+            "required": ["expression"]
+        }
+    },
+    {
+        "name": "search_knowledge_base",
+        "description": "Search the company knowledge base for information about policies, shipping, warranties, and account management.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query to find relevant knowledge base articles"
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "Number of top results to return (default: 2)",
+                    "default": 2
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "get_aws_account_info",
+        "description": "Get information about the current AWS account.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "list_s3_buckets",
+        "description": "List S3 buckets in the AWS account.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "max_buckets": {
+                    "type": "integer",
+                    "description": "Maximum number of buckets to return (default: 5)",
+                    "default": 5
+                }
+            },
+            "required": []
+        }
+    },
+]
+
+# Tool function registry
+TOOL_FUNCTIONS = {
+    "get_weather": get_weather,
+    "lookup_order": lookup_order,
+    "create_order": create_order,
+    "calculate": calculate,
+    "search_knowledge_base": search_knowledge_base,
+    "get_aws_account_info": get_aws_account_info,
+    "list_s3_buckets": list_s3_buckets,
+}
+
+
+# ═══════════════════════════════════════════════════════════
+# Tool-Use Agent Implementation
+# ═══════════════════════════════════════════════════════════
+
+class ToolUseAgent:
+    """
+    An agent that uses Claude's native tool use to interact
+    with Action Groups.
+    """
+    
+    SYSTEM_PROMPT = """You are a helpful AI assistant with access to various tools.
+When a user asks a question that requires specific data or actions, use the appropriate tool.
+Always provide clear, helpful responses based on tool results.
+If you need to use multiple tools, do so in a logical order.
+Format your responses in a clear, readable way."""
+    
+    def __init__(self, model_key: str = "claude_haiku"):
+        self.model_key = model_key
+        self.tools = CLAUDE_TOOLS
+        self.tool_functions = TOOL_FUNCTIONS
+        self.call_log = []
+    
+    def execute_tool(self, tool_name: str, tool_input: Dict) -> str:
+        """Execute a tool and return the result as a string."""
+        if tool_name in self.tool_functions:
+            result = self.tool_functions[tool_name](**tool_input)
+            return json.dumps(result, indent=2)
+        else:
+            return json.dumps({"error": f"Unknown tool: {tool_name}"})
+    
+    def run(self, user_message: str, max_iterations: int = 5) -> str:
+        """
+        Run the agent with a user message.
+        Handles multiple rounds of tool use if needed.
+        """
+        messages = [{"role": "user", "content": user_message}]
+        
+        print(f"\n🤖 Agent [{self.model_key}] Processing: \"{user_message}\"")
+        print("-" * 60)
+        
+        for iteration in range(max_iterations):
+            # Call Claude with tools
+            response = bedrock_wrapper.invoke_claude_with_messages(
+                messages=messages,
+                model_key=self.model_key,
+                system=self.SYSTEM_PROMPT,
+                tools=self.tools,
+                max_tokens=2048,
+            )
+            
+            stop_reason = response.get("stop_reason", "end_turn")
+            
+            # Check if Claude wants to use a tool
+            if stop_reason == "tool_use":
+                # Process all tool use blocks in the response
+                assistant_content = response["content"]
+                messages.append({"role": "assistant", "content": assistant_content})
+                
+                tool_results = []
+                for block in assistant_content:
+                    if block["type"] == "tool_use":
+                        tool_name = block["name"]
+                        tool_input = block["input"]
+                        tool_use_id = block["id"]
+                        
+                        print(f"  🔧 Iteration {iteration + 1}: Using tool '{tool_name}'")
+                        print(f"     Input: {json.dumps(tool_input, indent=2)}")
+                        
+                        # Execute the tool
+                        result = self.execute_tool(tool_name, tool_input)
+                        
+                        print(f"     Result: {result[:200]}...")
+                        
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_use_id,
+                            "content": result,
+                        })
+                        
+                        # Log the call
+                        self.call_log.append({
+                            "iteration": iteration + 1,
+                            "tool": tool_name,
+                            "input": tool_input,
+                            "result": result,
+                        })
+                
+                # Add tool results to messages
+                messages.append({"role": "user", "content": tool_results})
+                
+            else:
+                # Claude has finished (end_turn) - extract text response
+                final_text = ""
+                for block in response["content"]:
+                    if block["type"] == "text":
+                        final_text += block["text"]
+                
+                print(f"\n  ✅ Agent completed in {iteration + 1} iteration(s)")
+                return final_text
+        
+        return "Agent reached maximum iterations without completing."
+
+
+# ═══════════════════════════════════════════════════════════
+# Test the Tool-Use Agent
+# ═══════════════════════════════════════════════════════════
+
+agent = ToolUseAgent(model_key="claude_haiku")
+
+print("=" * 60)
+print("🧪 TEST 1: Weather Query (Single Tool)")
+print("=" * 60)
+result1 = agent.run("What's the weather like in Tokyo right now?")
+print(f"\n📝 Final Response:\n{result1}")
+
+print("\n" + "=" * 60)
+print("🧪 TEST 2: Order + Knowledge Base (Multi-Tool)")
+print("=" * 60)
+result2 = agent.run("Look up order ORD-002 and also tell me about the return policy.")
+print(f"\n📝 Final Response:\n{result2}")
+
+print("\n" + "=" * 60)
+print("🧪 TEST 3: Calculator + Weather (Cross-Domain)")
+print("=" * 60)
+result3 = agent.run("What's the temperature difference between New York and London? Calculate it for me.")
+print(f"\n📝 Final Response:\n{result3}")
+
+print("\n" + "=" * 60)
+print("🧪 TEST 4: AWS Service Interaction")
+print("=" * 60)
+result4 = agent.run("What AWS account am I using? Also list my S3 buckets.")
+print(f"\n📝 Final Response:\n{result4}")
+
+print(f"\n📊 Agent Usage Stats: {bedrock_wrapper.get_usage_stats()}")
+print(f"📋 Total Tool Calls: {len(agent.call_log)}")
+# =============================================================================
+# CELL 7: MODULE 4 - LangGraph Multi-Step Agent Orchestration
+# =============================================================================
+
+"""
+🔄 MODULE 4: LangGraph Multi-Step Agent Orchestration
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+LangGraph enables building complex, multi-step agent workflows as
+directed graphs. Each node is a processing step, and edges define
+the flow of execution.
+
+This module covers:
+  • Building a LangGraph workflow with multiple agent nodes
+  • Routing between specialized agents
+  • Multi-step processing pipelines
+  • Integration with AWS Bedrock models
+
+Architecture:
+                    ┌──────────────┐
+                    │   START      │
+                    └──────┬───────┘
+                           │
+                    ┌──────▼───────┐
+                    │   Router     │ (Claude Haiku - fast routing)
+                    │   Agent      │
+                    └──────┬───────┘
+                           │
+              ┌────────────┼────────────┐
+              │            │            │
+       ┌──────▼─────┐ ┌───▼────┐ ┌────▼──────┐
+       │  Research   │ │ Action │ │  General  │
+       │  Agent      │ │ Agent  │ │  Agent    │
+       │ (Sonnet)    │ │(Haiku) │ │  (Titan)  │
+       └──────┬──────┘ └───┬────┘ └────┬──────┘
+              │            │            │
+              └────────────┼────────────┘
+                           │
+                    ┌──────▼───────┐
+                    │  Synthesizer │ (Claude Haiku)
+                    └──────┬───────┘
+                           │
+                    ┌──────▼───────┐
+                    │     END      │
+                    └──────────────┘
+"""
+
+from langgraph.graph import StateGraph, END, START
+from langgraph.checkpoint.memory import MemorySaver
+from typing import TypedDict, Literal
+import operator
+import re
+
+
+# ═══════════════════════════════════════════════════════════
+# Define Graph State
+# ═══════════════════════════════════════════════════════════
+
+class AgentState(TypedDict):
+    """State that flows through the LangGraph workflow."""
+    # Input
+    user_query: str
+    
+    # Router
+    route: str
+    route_reasoning: str
+    
+    # Agent outputs
+    research_result: str
+    action_result: str
+    general_result: str
+    
+    # Tool usage tracking
+    tools_used: List[str]
+    
+    # Final output
+    final_response: str
+    
+    # Metadata
+    steps_taken: List[str]
+    model_used: Dict[str, str]
+    total_steps: int
+
+
+# ═══════════════════════════════════════════════════════════
+# Node 1: Router Agent (Uses Claude Haiku for fast routing)
+# ═══════════════════════════════════════════════════════════
+
+def router_agent(state: AgentState) -> AgentState:
+    """
+    Routes the user query to the appropriate specialized agent.
+    Uses Claude 3 Haiku for fast, cost-effective routing.
+    """
+    print("  📍 Node: Router Agent (Claude 3 Haiku)")
+    
+    query = state["user_query"]
+    
+    routing_prompt = f"""Analyze the following user query and determine which specialized agent should handle it.
+
+User Query: "{query}"
+
+Categories:
+1. "research" - Questions requiring analysis, comparison, explanation, or deep knowledge
+2. "action" - Requests that need tools/actions: weather lookup, order management, calculations, knowledge base search, AWS operations
+3. "general" - Simple greetings, chitchat, or basic questions that don't need tools or deep analysis
+
+Respond with ONLY a JSON object:
+{{"route": "<category>", "reasoning": ""}}"""
+
+    response = bedrock_wrapper.invoke_claude(
+        routing_prompt,
+        model_key="claude_haiku",
+        max_tokens=150,
+        temperature=0.0,
+    )
+    
+    # Parse the routing decision
+    try:
+        # Extract JSON from response
+        # Match JSON object (including nested braces)
+        json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response)
+        if json_match:
+            routing = json.loads(json_match.group())
+            route = routing.get("route", "general")
+            reasoning = routing.get("reasoning", "Default routing")
+        else:
+            route = "general"
+            reasoning = "Could not parse routing response"
+    except:
+        route = "general"
+        reasoning = "Fallback routing"
+    
+    print(f"    → Route: {route} | Reason: {reasoning}")
+    
+    return {
+        **state,
+        "route": route,
+        "route_reasoning": reasoning,
+        "steps_taken": state.get("steps_taken", []) + ["router"],
+        "model_used": {**state.get("model_used", {}), "router": "claude_haiku"},
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# Node 2: Research Agent (Uses Claude Sonnet for quality)
+# ═══════════════════════════════════════════════════════════
+
+def research_agent(state: AgentState) -> AgentState:
+    """
+    Handles research queries requiring deep analysis.
+    Uses Claude 3 Sonnet for higher quality reasoning.
+    """
+    print("  📍 Node: Research Agent (Claude 3 Sonnet)")
+    
+    query = state["user_query"]
+    
+    # First, check if we need embeddings for semantic search
+    kb_result = search_knowledge_base(query, top_k=2)
+    context = ""
+    if kb_result["results"]:
+        context = "\n\nRelevant Knowledge Base Articles:\n"
+        for r in kb_result["results"]:
+            context += f"- {r['title']}: {r['content']}\n"
+    
+    research_prompt = f"""You are a research analyst. Provide a thorough, well-structured answer.
+{context}
+User Query: {query}
+
+Provide a comprehensive but concise response. Use bullet points where appropriate."""
+
+    response = bedrock_wrapper.invoke_claude(
+        research_prompt,
+        model_key="claude_sonnet",
+        max_tokens=1500,
+        temperature=0.2,
+    )
+    
+    return {
+        **state,
+        "research_result": response,
+        "tools_used": state.get("tools_used", []) + ["knowledge_base_search"],
+        "steps_taken": state.get("steps_taken", []) + ["research_agent"],
+        "model_used": {**state.get("model_used", {}), "research": "claude_sonnet"},
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# Node 3: Action Agent (Uses Claude Haiku + Tools)
+# ═══════════════════════════════════════════════════════════
+
+def action_agent(state: AgentState) -> AgentState:
+    """
+    Handles action queries using tools/action groups.
+    Uses Claude 3 Haiku for fast tool use.
+    """
+    print("  📍 Node: Action Agent (Claude 3 Haiku + Tools)")
+    
+    # Use the ToolUseAgent we built earlier
+    tool_agent = ToolUseAgent(model_key="claude_haiku")
+    result = tool_agent.run(state["user_query"])
+    
+    tools_used = [call["tool"] for call in tool_agent.call_log]
+    
+    return {
+        **state,
+        "action_result": result,
+        "tools_used": state.get("tools_used", []) + tools_used,
+        "steps_taken": state.get("steps_taken", []) + ["action_agent"],
+        "model_used": {**state.get("model_used", {}), "action": "claude_haiku"},
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# Node 4: General Agent (Uses Titan Text Express)
+# ═══════════════════════════════════════════════════════════
+
+def general_agent(state: AgentState) -> AgentState:
+    """
+    Handles general queries and chitchat.
+    Uses Amazon Titan Text Express for basic responses.
+    """
+    print("  📍 Node: General Agent (Amazon Titan Text Express)")
+    
+    query = state["user_query"]
+    
+    prompt = f"""You are a friendly and helpful assistant. 
+    
+User: {query}
+    
+Provide a helpful and concise response."""
+    
+    response = bedrock_wrapper.invoke_titan_text(
+        prompt,
+        max_tokens=512,
+        temperature=0.3,
+    )
+    
+    return {
+        **state,
+        "general_result": response,
+        "steps_taken": state.get("steps_taken", []) + ["general_agent"],
+        "model_used": {**state.get("model_used", {}), "general": "titan_text"},
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# Node 5: Synthesizer Agent (Combines all results)
+# ═══════════════════════════════════════════════════════════
+
+def synthesizer_agent(state: AgentState) -> AgentState:
+    """
+    Synthesizes results from specialized agents into a final response.
+    Uses Claude 3 Haiku for efficient synthesis.
+    """
+    print("  📍 Node: Synthesizer Agent (Claude 3 Haiku)")
+    
+    query = state["user_query"]
+    route = state.get("route", "general")
+    
+    # Collect results based on route
+    agent_result = ""
+    if route == "research":
+        agent_result = state.get("research_result", "")
+    elif route == "action":
+        agent_result = state.get("action_result", "")
+    else:
+        agent_result = state.get("general_result", "")
+    
+    synthesis_prompt = f"""You are synthesizing a response to a user query.
+
+Original Query: {query}
+Route Selected: {route}
+Agent Response: {agent_result}
+
+Create a clear, well-formatted final response that directly answers the user's query.
+If the agent response is empty, provide a helpful message explaining the situation.
+Keep the response concise and user-friendly."""
+    
+    final_response = bedrock_wrapper.invoke_claude(
+        synthesis_prompt,
+        model_key="claude_haiku",
+        max_tokens=1024,
+        temperature=0.2,
+    )
+    
+    return {
+        **state,
+        "final_response": final_response,
+        "total_steps": len(state.get("steps_taken", [])),
+        "steps_taken": state.get("steps_taken", []) + ["synthesizer"],
+        "model_used": {**state.get("model_used", {}), "synthesizer": "claude_haiku"},
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# Routing Function: Decides which agent to call
+# ═══════════════════════════════════════════════════════════
+
+def route_query(state: AgentState) -> Literal["research_agent", "action_agent", "general_agent"]:
+    """
+    Routes to the appropriate agent based on the route decision.
+    """
+    route = state.get("route", "general")
+    
+    if route == "research":
+        return "research_agent"
+    elif route == "action":
+        return "action_agent"
+    else:
+        return "general_agent"
+
+
+# ═══════════════════════════════════════════════════════════
+# Build the LangGraph
+# ═══════════════════════════════════════════════════════════
+
+# Initialize the graph
+workflow = StateGraph(AgentState)
+
+# Add nodes
+workflow.add_node("router", router_agent)
+workflow.add_node("research_agent", research_agent)
+workflow.add_node("action_agent", action_agent)
+workflow.add_node("general_agent", general_agent)
+workflow.add_node("synthesizer", synthesizer_agent)
+
+# Add edges
+workflow.add_edge(START, "router")
+workflow.add_conditional_edges(
+    "router",
+    route_query,
+    {
+        "research_agent": "research_agent",
+        "action_agent": "action_agent",
+        "general_agent": "general_agent",
+    }
+)
+workflow.add_edge("research_agent", "synthesizer")
+workflow.add_edge("action_agent", "synthesizer")
+workflow.add_edge("general_agent", "synthesizer")
+workflow.add_edge("synthesizer", END)
+
+# Compile the graph
+app = workflow.compile()
+
+print("\n" + "=" * 60)
+print("✅ LangGraph workflow compiled successfully!")
+print("=" * 60)
+
+
+# ═══════════════════════════════════════════════════════════
+# Test the LangGraph Workflow
+# ═══════════════════════════════════════════════════════════
+
+print("\n" + "=" * 60)
+print("🧪 TESTING LANGGRAPH WORKFLOW")
+print("=" * 60)
+
+# Test 1: Research Query
+print("\n📝 Test 1: Research Query")
+print("-" * 60)
+test_state_1 = {
+    "user_query": "Explain the differences between Claude 3 Haiku and Sonnet models.",
+    "route": "",
+    "route_reasoning": "",
+    "research_result": "",
+    "action_result": "",
+    "general_result": "",
+    "tools_used": [],
+    "final_response": "",
+    "steps_taken": [],
+    "model_used": {},
+    "total_steps": 0,
+}
+
+try:
+    result_1 = app.invoke(test_state_1)
+    print(f"\n✅ Result:\n{result_1['final_response'][:500]}...")
+    print(f"\n📊 Steps: {result_1['steps_taken']}")
+    print(f"🔧 Tools Used: {result_1.get('tools_used', [])}")
+except Exception as e:
+    print(f"❌ Error: {e}")
+
+# Test 2: Action Query
+print("\n\n📝 Test 2: Action Query")
+print("-" * 60)
+test_state_2 = {
+    "user_query": "What's the weather in Tokyo and also calculate 25 * 4 + 100?",
+    "route": "",
+    "route_reasoning": "",
+    "research_result": "",
+    "action_result": "",
+    "general_result": "",
+    "tools_used": [],
+    "final_response": "",
+    "steps_taken": [],
+    "model_used": {},
+    "total_steps": 0,
+}
+
+try:
+    result_2 = app.invoke(test_state_2)
+    print(f"\n✅ Result:\n{result_2['final_response'][:500]}...")
+    print(f"\n📊 Steps: {result_2['steps_taken']}")
+    print(f"🔧 Tools Used: {result_2.get('tools_used', [])}")
+except Exception as e:
+    print(f"❌ Error: {e}")
+
+# Test 3: General Query
+print("\n\n📝 Test 3: General Query")
+print("-" * 60)
+test_state_3 = {
+    "user_query": "Hello! How are you today?",
+    "route": "",
+    "route_reasoning": "",
+    "research_result": "",
+    "action_result": "",
+    "general_result": "",
+    "tools_used": [],
+    "final_response": "",
+    "steps_taken": [],
+    "model_used": {},
+    "total_steps": 0,
+}
+
+try:
+    result_3 = app.invoke(test_state_3)
+    print(f"\n✅ Result:\n{result_3['final_response'][:500]}...")
+    print(f"\n📊 Steps: {result_3['steps_taken']}")
+except Exception as e:
+    print(f"❌ Error: {e}")
+
+print("\n" + "=" * 60)
+print("🎯 Module 4 complete! Proceed to Module 5 (if implemented).")
+print("=" * 60)
+
+# =============================================================================
+# NOTE: SageMaker AI Studio Considerations
+# =============================================================================
+"""
+⚠️  IMPORTANT NOTES FOR SAGEMAKER AI STUDIO:
+
+1. AWS REGION:
+   - The code will automatically detect your SageMaker domain's region
+   - You can override by setting AWS_DEFAULT_REGION environment variable
+   - Ensure Bedrock models are available in your selected region
+
+2. IAM PERMISSIONS:
+   - Your SageMaker execution role needs:
+     * bedrock:InvokeModel (for all Bedrock models used)
+     * bedrock:ListFoundationModels
+     * sts:GetCallerIdentity (for account info)
+     * s3:ListAllMyBuckets (optional, for S3 action group)
+   - If permissions are missing, some action groups will fail gracefully
+
+3. LANGSMITH (OPTIONAL):
+   - LangSmith tracing is optional - the lab works without it
+   - Set LANGSMITH_API_KEY environment variable if you want tracing
+   - If not set, you'll see a warning but execution continues
+
+4. MISSING MODULES:
+   - Modules 5-8 are not implemented in this file:
+     * Module 5: LangSmith Tracing, Debugging & Evaluation
+     * Module 6: Strands Agent with AWS Bedrock
+     * Module 7: Stateful Conversations with LangGraph
+     * Module 8: Comprehensive Cleanup
+   - The code up to Module 4 is complete and functional
+
+5. ERROR HANDLING:
+   - All AWS service calls have try/except blocks
+   - Errors are logged but don't crash the notebook
+   - Check logs for specific error messages if something fails
+
+6. COST CONSIDERATIONS:
+   - Bedrock model invocations incur costs
+   - Claude Haiku is the most cost-effective option
+   - Monitor usage via bedrock_wrapper.get_usage_stats()
+
+7. EXECUTION:
+   - Run cells sequentially (Cell 1 → Cell 2 → ...)
+   - Each cell builds on previous cells
+   - If a cell fails, check error messages and fix before proceeding
+"""
